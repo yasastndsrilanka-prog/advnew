@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CanteenOS | Enterprise Analytics</title>
+    <title>Enterprise | Analytics Engine</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -12,9 +12,7 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        slate: { 850: '#152033' }
-                    },
+                    colors: { slate: { 850: '#152033' } },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
                         mono: ['JetBrains Mono', 'monospace']
@@ -24,17 +22,15 @@
         }
     </script>
     
-    <!-- Google Fonts for Modern Look -->
+    <!-- Google Fonts & FontAwesome -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    
-    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
         body { font-family: 'Inter', sans-serif; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
         
-        /* --- PROFESSIONAL PRINT ENGINE v2 --- */
+        /* --- PROFESSIONAL PRINT ENGINE --- */
         @media print {
             body > * { display: none !important; }
             #print-overlay {
@@ -43,454 +39,325 @@
                 top: 0; left: 0; width: 100%; height: 100%;
                 background: white; z-index: 9999; padding: 0; margin: 0;
             }
-            .print-mode-report {
-                display: block !important;
-                padding: 10mm;
-            }
-            .report-table {
-                width: 100%; border-collapse: collapse; font-size: 10pt;
-            }
-            .report-table th, .report-table td {
-                border: 1px solid #ddd; padding: 6px; text-align: left;
-            }
+            .print-mode-report { display: block !important; padding: 10mm; }
+            .report-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+            .report-table th, .report-table td { border: 1px solid #ddd; padding: 6px; text-align: left; }
             .report-table th { background-color: #f3f4f6 !important; font-weight: bold; }
-            .no-print { display: none !important; }
             @page { size: auto; margin: 5mm; }
         }
         #print-overlay { display: none; }
-        
-        /* Hide scrollbar for clean UI but keep functionality */
+
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
-
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
-        /* Custom Scrollbar for sleek UI */
+        .animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; } 
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        .dark ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .dark ::-webkit-scrollbar-thumb { background: #475569; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, getDocs, doc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ============================================================
-        //  FIREBASE CONFIGURATION
-        // ============================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAfKp8gWavPxo5EZafetpeADh7eeRHQQx0",
-            authDomain: "canteen-2d80d.firebaseapp.com",
-            projectId: "canteen-2d80d",
-            storageBucket: "canteen-2d80d.firebasestorage.app",
-            messagingSenderId: "835222412943",
-            appId: "1:835222412943:web:8db25547c45a1f0e1d5afa"
+        // Firebase Config
+        const appConfig = {
+            apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
+            authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+            projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
+            storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
+            messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+            appId: import.meta.env?.VITE_FIREBASE_APP_ID || ""
         };
-        
-        let appConfig = firebaseConfig;
-        if (typeof __firebase_config !== 'undefined') { 
-            try {
-                appConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
-            } catch (e) {
-                console.warn("Could not parse __firebase_config", e);
-            }
-        }
 
         const app = initializeApp(appConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'enterprise-dashboard-v1';
+
+        // State
+        let personnelMap = {};
+        let attendanceLogs = [];
         
-        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'canteen-os-live';
-
-        // --- Data Handling ---
-        let SYSTEM_USERS = {}; 
-        let currentUser = null; 
-        let loggedInSysUser = null; 
-        let dataLoaded = false;
-        const SYS_SESSION_KEY = `canteen_sys_session_${appId}`;
-
-        // Auto Logout Timer
-        let idleTime = 0;
-        const MAX_IDLE_TIME = 120; // 120 Seconds
-
-        let unsubscribeReport = null;
-
-        const views = {
-            login: document.getElementById('view-login'), 
-            report: document.getElementById('view-report'),
-            loading: document.getElementById('view-loading')
+        // Dynamic Daily Rates map instead of static value
+        let dailyRates = {
+            "Sunday": 0, "Monday": 0, "Tuesday": 0, "Wednesday": 0,
+            "Thursday": 0, "Friday": 0, "Saturday": 0
         };
-        const navBar = document.getElementById('main-nav');
-        const roleDisplay = document.getElementById('role-display');
-        
-        // --- Theme Init ---
-        window.initTheme = () => {
-            const savedTheme = localStorage.getItem('canteen_theme');
-            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
+
+        const SYS_SESSION_KEY = `ent_sys_session_${appId}`;
+        let loggedInSysUser = null;
+
+        document.documentElement.classList.add('dark');
+
+        const formatter = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
+        function getTodayStr() { return new Date().toISOString().split('T')[0]; }
+
+        // Helper to get day name safely from YYYY-MM-DD
+        function getDayName(dateString) {
+            if (!dateString) return '';
+            const parts = dateString.split('-');
+            if (parts.length === 3) {
+                const date = new Date(parts[0], parts[1] - 1, parts[2]);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                return days[date.getDay()];
             }
-            window.updateThemeIcon = () => {
-                const btn = document.getElementById('theme-toggle-btn');
-                if (!btn) return;
-                if (document.documentElement.classList.contains('dark')) {
-                    btn.innerHTML = '<i class="fas fa-sun text-yellow-400"></i>';
-                } else {
-                    btn.innerHTML = '<i class="fas fa-moon text-slate-300"></i>';
-                }
-            };
-            window.updateThemeIcon();
+            return '';
+        }
+
+        window.showToast = (message, type = 'success') => {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colors = type === 'success' ? 'bg-purple-500 border-purple-600' : 'bg-red-500 border-red-600';
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
+            toast.className = `${colors} text-white px-4 py-3 rounded-xl shadow-lg border flex items-center gap-3 animate-fade-in text-sm font-bold mt-2`;
+            toast.innerHTML = `<i class="fas ${icon}"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
         };
 
-        window.toggleTheme = () => {
-            document.documentElement.classList.toggle('dark');
-            const isDark = document.documentElement.classList.contains('dark');
-            localStorage.setItem('canteen_theme', isDark ? 'dark' : 'light');
-            window.updateThemeIcon();
-        };
-
-        // Initialize Theme early
-        initTheme();
-
-        // --- Auth & Data Init ---
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    try {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } catch (error) {
-                        console.warn("Custom token sign-in failed. Falling back to anonymous sign-in.", error);
-                        await signInAnonymously(auth);
-                    }
+                    await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
                     await signInAnonymously(auth);
                 }
-            } catch (err) {
-                console.error("Authentication Initialization Error:", err);
-                const loadingView = document.getElementById('view-loading');
-                if (loadingView) {
-                    loadingView.innerHTML = `
-                        <div class="bg-red-50 border border-red-200 text-red-700 p-8 rounded-2xl max-w-md mx-auto mt-20 text-center shadow-lg">
-                            <i class="fas fa-shield-alt text-5xl mb-4 text-red-400"></i>
-                            <h3 class="font-bold text-xl mb-2">Terminal Access Blocked</h3>
-                            <p class="text-sm text-red-600 mb-4">Your connection blocks security tokens or local storage required for enterprise access.</p>
-                            <div class="bg-white p-3 rounded-xl border border-red-100 text-xs font-mono text-left overflow-auto text-red-800">
-                                Error: ${err.message}
-                            </div>
-                        </div>`;
-                }
-            }
+            } catch (err) { console.error("Auth Error:", err); }
         };
 
-        const loadData = () => {
-            if (!auth.currentUser) return;
-
-            const qSys = query(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'));
-            onSnapshot(qSys, (snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === "added" || change.type === "modified") {
-                        SYSTEM_USERS[change.doc.id] = change.doc.data();
-                    }
-                    if (change.type === "removed") {
-                        delete SYSTEM_USERS[change.doc.id];
-                    }
-                });
-                
-                if (!dataLoaded) {
-                    dataLoaded = true;
-                    checkAuthRouting();
-                }
-            }, (error) => {
-                console.error("System Users fetch error:", error);
-            });
+        window.goToDashboard = () => {
+            try {
+                if (window.location.protocol === 'blob:') window.history.back();
+                else window.location.href = 'index.html';
+            } catch (e) { window.history.back(); }
         };
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                currentUser = user;
-                if (!dataLoaded) {
+                const sessionStr = localStorage.getItem(SYS_SESSION_KEY);
+                if (sessionStr) {
+                    const session = JSON.parse(sessionStr);
+                    loggedInSysUser = { username: session.username };
+                    document.getElementById('view-loading').classList.add('hidden');
+                    document.getElementById('view-report').classList.remove('hidden');
+                    
+                    document.getElementById('rpt-start').value = getTodayStr();
+                    document.getElementById('rpt-end').value = getTodayStr();
+                    
                     loadData();
+                } else {
+                    document.getElementById('view-loading').classList.add('hidden');
+                    document.getElementById('view-unauthorized').classList.remove('hidden');
                 }
-            } else {
-                showView('loading');
             }
         });
 
         initAuth();
 
-        // --- IDLE TIMER ---
-        setInterval(() => {
-            if(loggedInSysUser) {
-                idleTime++;
-                if (idleTime >= MAX_IDLE_TIME) {
-                    appLogout(true);
+        const loadData = () => {
+            // 1. Get Daily Token Values Map
+            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
+            onSnapshot(settingsRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.dailyRates) {
+                        dailyRates = data.dailyRates;
+                    } else if (data.mealTokenValue !== undefined) {
+                        // Fallback to legacy single value format
+                        const val = parseFloat(data.mealTokenValue) || 0;
+                        dailyRates = {
+                            "Sunday": val, "Monday": val, "Tuesday": val, "Wednesday": val,
+                            "Thursday": val, "Friday": val, "Saturday": val
+                        };
+                    }
                 }
-            }
-        }, 1000);
+                updateAnalytics();
+            });
 
-        const resetIdleTimer = () => { idleTime = 0; };
-        document.onmousemove = resetIdleTimer;
-        document.onkeypress = resetIdleTimer;
-        document.onclick = resetIdleTimer;
-        document.ontouchstart = resetIdleTimer;
+            // 2. Listen to Personnel DB
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
+            onSnapshot(pRef, (snap) => {
+                personnelMap = {};
+                snap.forEach(doc => personnelMap[doc.id] = doc.data());
+                updateAnalytics();
+            });
 
-        // ============================================================
-        //  LOGIN & SESSION ROUTING
-        // ============================================================
-        
-        function checkAuthRouting() {
-            const sessionStr = localStorage.getItem(SYS_SESSION_KEY);
-            if (sessionStr) {
-                const session = JSON.parse(sessionStr);
-                const sysUser = SYSTEM_USERS[session.username];
-                
-                // Allow persistent session for hardcoded master
-                if (session.username === 'ADMIN' && session.date === getTodayStr()) {
-                    loggedInSysUser = { username: 'ADMIN', name: 'System Admin', role: 'ADMIN', status: 'ACTIVE' };
-                    proceedToReport();
-                    return;
-                }
-
-                if (session.date === getTodayStr() && sysUser && sysUser.status === 'ACTIVE') {
-                    loggedInSysUser = sysUser;
-                    proceedToReport();
-                    return;
-                }
-            }
-            showView('login');
-            navBar.classList.add('hidden');
-        }
-
-        window.appLogin = async (e) => {
-            e.preventDefault();
-            const u = document.getElementById('login-username').value.trim().toUpperCase();
-            const p = document.getElementById('login-pin').value.trim();
-            
-            // Hardcoded master access
-            if (u === 'ADMIN' && p === 'ADMIN123') {
-                loggedInSysUser = { username: 'ADMIN', name: 'System Admin', role: 'ADMIN', status: 'ACTIVE' };
-                localStorage.setItem(SYS_SESSION_KEY, JSON.stringify({ username: 'ADMIN', date: getTodayStr() }));
-                document.getElementById('login-error').classList.add('hidden');
-                proceedToReport();
-                return;
-            }
-
-            const user = SYSTEM_USERS[u];
-            if (user && user.pin === p && user.status === 'ACTIVE') {
-                if (user.role !== 'ADMIN' && user.role !== 'REPORT_VIEWER') {
-                    document.getElementById('login-error').innerHTML = '<i class="fas fa-shield-alt mr-2"></i> Access Denied: Insufficient Privileges';
-                    document.getElementById('login-error').classList.remove('hidden');
-                    return;
-                }
-                
-                loggedInSysUser = user;
-                localStorage.setItem(SYS_SESSION_KEY, JSON.stringify({ username: u, date: getTodayStr() }));
-                document.getElementById('login-error').classList.add('hidden');
-                proceedToReport();
-            } else {
-                document.getElementById('login-error').innerHTML = '<i class="fas fa-shield-alt mr-2"></i> Access Denied: Invalid Credentials';
-                document.getElementById('login-error').classList.remove('hidden');
-            }
+            // 3. Listen to Attendance Logs
+            const aRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
+            onSnapshot(aRef, (snap) => {
+                attendanceLogs = [];
+                snap.forEach(doc => attendanceLogs.push({ id: doc.id, ...doc.data() }));
+                updateAnalytics();
+            });
         };
 
-        window.appLogout = (auto = false) => {
-            localStorage.removeItem(SYS_SESSION_KEY);
-            loggedInSysUser = null;
-            
-            if (unsubscribeReport) unsubscribeReport();
-            
-            if(auto) {
-                window.location.reload();
-            } else {
-                checkAuthRouting();
+        // ============================================================
+        //  ANALYTICS ENGINE
+        // ============================================================
+        function updateAnalytics() {
+            const todayStr = getTodayStr();
+            const currentMonthStr = todayStr.substring(0, 7); 
+
+            let totalCostToday = 0, issuedToday = 0, consumedToday = 0;
+            let totalCostMonth = 0, issuedMonth = 0, consumedMonth = 0;
+
+            const dailyStats = {};
+            const deptStats = {};
+            const acctStats = {};
+            const compStats = {};
+            const siteStats = {};
+
+            // Initialize last 7 days
+            for (let i=6; i>=0; i--) {
+                const d = new Date(); d.setDate(d.getDate() - i);
+                dailyStats[d.toISOString().split('T')[0]] = 0;
             }
-        };
 
-        function proceedToReport() {
-            showView('report');
-            navBar.classList.remove('hidden');
-            roleDisplay.textContent = `${loggedInSysUser.name} (${loggedInSysUser.role})`;
-            renderReportDashboard();
-        }
+            const tbody = document.getElementById('report-table-body');
+            if(tbody) tbody.innerHTML = '';
 
-        function showView(viewName) {
-            Object.values(views).forEach(el => el && el.classList.add('hidden'));
-            if(views[viewName]) views[viewName].classList.remove('hidden');
-        }
+            // Sort logs by newest first for the live feed
+            const sortedLogs = [...attendanceLogs].sort((a, b) => {
+                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
+                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                return tB - tA;
+            });
 
-        function getTodayStr() { return new Date().toISOString().split('T')[0]; }
-        function formatCurrency(amount) { return new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' }).format(amount); }
+            let tableCount = 0;
 
-        function showToast(message, type = 'info') {
-            const toast = document.getElementById('toast');
-            document.getElementById('toast-message').textContent = message;
-            const icon = document.getElementById('toast-icon');
-            toast.className = `fixed bottom-4 right-4 px-6 py-4 rounded-xl shadow-2xl transition-all duration-300 z-[100] flex items-center space-x-3 font-medium ${type === 'error' ? 'bg-red-600 text-white shadow-red-500/30' : type === 'success' ? 'bg-emerald-600 text-white shadow-emerald-500/30' : 'bg-slate-800 dark:bg-slate-700 text-white shadow-slate-900/30'}`;
-            icon.className = `fas text-xl ${type === 'error' ? 'fa-exclamation-circle' : type === 'success' ? 'fa-check-circle' : 'fa-info-circle'}`;
-            toast.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
-        }
-
-        // ============================================================
-        //  REPORTS LOGIC
-        // ============================================================
-        
-        function renderReportDashboard() {
-            document.getElementById('rpt-start').value = getTodayStr();
-            document.getElementById('rpt-end').value = getTodayStr();
-
-            const q = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
-            
-            unsubscribeReport = onSnapshot(q, (snapshot) => {
-                const todayStr = getTodayStr();
-                const currentMonthStr = todayStr.substring(0, 7); 
-
-                let tokens = [];
-                snapshot.forEach(doc => tokens.push({ id: doc.id, ...doc.data() }));
+            sortedLogs.forEach(log => {
+                const emp = personnelMap[log.empId] || {};
+                const isConsumed = log.mealRedeemed === true;
                 
-                tokens.sort((a, b) => {
-                    const tA = a.issuedAt ? a.issuedAt.seconds : 0;
-                    const tB = b.issuedAt ? b.issuedAt.seconds : 0;
-                    return tB - tA;
-                });
-
-                let totalCostToday = 0, issuedToday = 0, consumedToday = 0;
-                let totalCostMonth = 0, issuedMonth = 0, consumedMonth = 0;
-
-                const dailyStats = {};
-                const deptStats = {};
-                const acctStats = {};
-                const compStats = {};
-                const siteStats = {};
-
-                for (let i=6; i>=0; i--) {
-                    const d = new Date(); d.setDate(d.getDate() - i);
-                    dailyStats[d.toISOString().split('T')[0]] = 0;
+                // Determine rate based on the log date
+                let rateForDay = 0;
+                if (log.date) {
+                    const dayName = getDayName(log.date);
+                    rateForDay = parseFloat(dailyRates[dayName]) || 0;
                 }
-
-                const tbody = document.getElementById('report-table-body');
-                if(tbody) tbody.innerHTML = '';
-
-                let tableCount = 0;
-
-                tokens.forEach(data => {
-                    const cost = data.costs?.total || 0;
-                    const isConsumed = data.status === 'CONSUMED';
-                    
-                    if (data.issuedDate && data.issuedDate.startsWith(currentMonthStr)) {
-                        if (isConsumed) { totalCostMonth += cost; }
-                        issuedMonth++;
-                        if (isConsumed) consumedMonth++;
-                    }
-
-                    if(data.issuedDate === todayStr) {
-                        if (isConsumed) { totalCostToday += cost; }
-                        issuedToday++;
-                        if (isConsumed) consumedToday++;
-                        
-                        if(tbody && tableCount < 200) {
-                            const tr = document.createElement('tr');
-                            tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700/50 last:border-0 transition-colors animate-fade-in';
-                            tr.innerHTML = `
-                                <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white">${data.empName}</td>
-                                <td class="px-6 py-4 text-xs font-mono font-bold text-slate-600 dark:text-slate-400">${data.issuedBySysUser || 'SYS'}</td>
-                                <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">${data.dept}</td>
-                                <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">${data.site || '-'}</td>
-                                <td class="px-6 py-4 text-sm"><span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold ${data.status==='ISSUED'?'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300':'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'}">${data.status}</span></td>
-                                <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white">${formatCurrency(cost)}</td>
-                                <td class="px-6 py-4 text-sm text-center">
-                                    <button onclick="deleteToken('${data.id}')" class="text-red-400 hover:text-red-600 font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"><i class="fas fa-trash-alt"></i></button>
-                                </td>
-                            `;
-                            tbody.appendChild(tr);
-                            tableCount++;
-                        }
-                    }
-
-                    if (dailyStats.hasOwnProperty(data.issuedDate) && isConsumed) {
-                         dailyStats[data.issuedDate] += cost;
-                    }
-
-                    const dept = data.dept || 'Unknown';
-                    const acct = data.account || 'Unknown';
-                    const comp = data.company || 'Unknown';
-                    const site = data.site || 'Unknown';
-
+                
+                // Calculate Cost
+                const cost = isConsumed ? rateForDay : 0;
+                
+                // Monthly Stats
+                if (log.date && log.date.startsWith(currentMonthStr)) {
+                    issuedMonth++;
                     if (isConsumed) {
-                        deptStats[dept] = (deptStats[dept] || 0) + cost;
-                        acctStats[acct] = (acctStats[acct] || 0) + cost;
-                        compStats[comp] = (compStats[comp] || 0) + cost;
-                        siteStats[site] = (siteStats[site] || 0) + cost;
+                        totalCostMonth += cost;
+                        consumedMonth++;
                     }
-                });
+                }
 
-                document.getElementById('rpt-total-spend').textContent = formatCurrency(totalCostToday);
-                document.getElementById('rpt-tokens-issued-today').textContent = issuedToday;
-                document.getElementById('rpt-tokens-consumed-today').textContent = consumedToday;
-                
-                document.getElementById('rpt-month-spend').textContent = formatCurrency(totalCostMonth);
-                document.getElementById('rpt-month-issued').textContent = issuedMonth;
-                document.getElementById('rpt-month-consumed').textContent = consumedMonth;
+                // Daily Stats & Feed
+                if(log.date === todayStr) {
+                    issuedToday++;
+                    if (isConsumed) {
+                        totalCostToday += cost;
+                        consumedToday++;
+                    }
+                    
+                    // Populate Live Feed (Max 100 items)
+                    if(tbody && tableCount < 100) {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700/50 last:border-0 transition-colors animate-fade-in';
+                        
+                        const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending';
+                        const statusBadge = isConsumed 
+                            ? `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">REDEEMED</span>`
+                            : `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">CLEARED</span>`;
 
-                renderDistributionChart('rpt-chart-dept', deptStats, true);
-                renderDistributionChart('rpt-chart-acct', acctStats, true);
-                renderDistributionChart('rpt-chart-comp', compStats, true);
-                renderDistributionChart('rpt-chart-site', siteStats, true);
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white flex flex-col">
+                                <span>${emp.name || 'Unknown'}</span>
+                                <span class="text-[10px] font-mono text-slate-400 mt-1">${log.empId}</span>
+                            </td>
+                            <td class="px-6 py-4 text-xs font-bold text-slate-600 dark:text-slate-400">${timeStr}</td>
+                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">${emp.department || emp.dept || '-'}</td>
+                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">${emp.site || '-'}</td>
+                            <td class="px-6 py-4 text-sm">${statusBadge}</td>
+                            <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white text-right">${isConsumed ? formatter.format(cost) : '-'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                        tableCount++;
+                    }
+                }
 
-                const trendContainer = document.getElementById('rpt-chart-trend');
-                trendContainer.innerHTML = '';
-                const maxDaily = Math.max(...Object.values(dailyStats), 10);
-                Object.keys(dailyStats).forEach(date => {
-                    const val = dailyStats[date];
-                    const hPercent = (val / maxDaily) * 100;
-                    trendContainer.innerHTML += `
-                        <div class="flex flex-col items-center flex-1">
-                            <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-t-lg relative group h-32 flex items-end justify-center">
-                                <div class="w-3/4 bg-purple-500 rounded-t-md transition-all duration-700 hover:bg-purple-400" style="height: ${Math.max(hPercent, 2)}%"></div>
-                                <div class="absolute -top-10 bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-lg pointer-events-none">${formatCurrency(val)}</div>
-                            </div>
-                            <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-bold uppercase tracking-wider">${new Date(date).toLocaleDateString('en-US', {weekday: 'short'})}</div>
+                // Distributions (Only count consumed meals for cost distributions)
+                if (isConsumed) {
+                    if (dailyStats.hasOwnProperty(log.date)) dailyStats[log.date] += cost;
+
+                    const dept = emp.department || emp.dept || 'Unknown';
+                    const acct = emp.accountName || 'CTE';
+                    const comp = emp.companyName || 'Internal';
+                    const site = emp.site || 'Unknown';
+
+                    deptStats[dept] = (deptStats[dept] || 0) + cost;
+                    acctStats[acct] = (acctStats[acct] || 0) + cost;
+                    compStats[comp] = (compStats[comp] || 0) + cost;
+                    siteStats[site] = (siteStats[site] || 0) + cost;
+                }
+            });
+
+            // Update DOM
+            document.getElementById('rpt-total-spend').textContent = formatter.format(totalCostToday);
+            document.getElementById('rpt-tokens-issued-today').textContent = issuedToday;
+            document.getElementById('rpt-tokens-consumed-today').textContent = consumedToday;
+            
+            document.getElementById('rpt-month-spend').textContent = formatter.format(totalCostMonth);
+            document.getElementById('rpt-month-issued').textContent = issuedMonth;
+            document.getElementById('rpt-month-consumed').textContent = consumedMonth;
+
+            renderDistributionChart('rpt-chart-dept', deptStats, true);
+            renderDistributionChart('rpt-chart-acct', acctStats, true);
+            renderDistributionChart('rpt-chart-comp', compStats, true);
+            renderDistributionChart('rpt-chart-site', siteStats, true);
+
+            // 7-Day Trend
+            const trendContainer = document.getElementById('rpt-chart-trend');
+            trendContainer.innerHTML = '';
+            const maxDaily = Math.max(...Object.values(dailyStats), 10);
+            Object.keys(dailyStats).forEach(date => {
+                const val = dailyStats[date];
+                const hPercent = (val / maxDaily) * 100;
+                trendContainer.innerHTML += `
+                    <div class="flex flex-col items-center flex-1">
+                        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-t-lg relative group h-32 flex items-end justify-center">
+                            <div class="w-3/4 bg-[#a855f7] rounded-t-md transition-all duration-700 hover:bg-purple-400 shadow-md" style="height: ${Math.max(hPercent, 2)}%"></div>
+                            <div class="absolute -top-10 bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-lg pointer-events-none">${formatter.format(val)}</div>
                         </div>
-                    `;
-                });
-            }, (error) => {
-                console.error("Report tokens fetch error:", error);
-                showToast("Real-time data connection error.", "error");
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-bold uppercase tracking-wider">${new Date(date).toLocaleDateString('en-US', {weekday: 'short'})}</div>
+                    </div>
+                `;
             });
         }
-
-        window.deleteToken = async (id) => {
-            if(confirm('Delete this transaction record? This action cannot be undone.')) {
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tokens', id));
-                    showToast('Record Removed Successfully', 'success');
-                } catch(e) {
-                    showToast('Failed to delete record', 'error');
-                }
-            }
-        };
 
         function renderDistributionChart(containerId, stats, showAmount = false) {
             const container = document.getElementById(containerId);
             if (!container) return; 
             container.innerHTML = '';
+            
             const total = Object.values(stats).reduce((a,b)=>a+b, 0) || 1;
-            const sortedKeys = Object.keys(stats).sort((a,b) => stats[b] - stats[a]).slice(0, 5); 
+            const sortedKeys = Object.keys(stats).sort((a,b) => stats[b] - stats[a]).slice(0, 5); // Top 5
+
+            if (sortedKeys.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-500 italic py-4">No financial data available.</div>';
+                return;
+            }
 
             sortedKeys.forEach(key => {
                 const val = stats[key];
                 const percent = (val / total) * 100;
-                const label = showAmount ? `${key} (${formatCurrency(val)})` : key;
+                const label = showAmount ? `${key} (${formatter.format(val)})` : key;
                 
                 container.innerHTML += `
                     <div class="mb-4">
@@ -499,13 +366,16 @@
                             <span class="text-slate-500 dark:text-slate-400 font-medium">${Math.round(percent)}%</span>
                         </div>
                         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-                            <div class="bg-purple-500 h-2 rounded-full" style="width: ${percent}%"></div>
+                            <div class="bg-[#a855f7] h-2 rounded-full" style="width: ${percent}%"></div>
                         </div>
                     </div>
                 `;
             });
         }
 
+        // ============================================================
+        //  REPORTS & EXPORTS
+        // ============================================================
         window.printReport = () => {
             const content = document.getElementById('report-preview-content').innerHTML;
             const overlay = document.getElementById('print-overlay');
@@ -514,345 +384,350 @@
             window.print();
         };
 
-        window.generateReportPreview = async () => {
+        window.generateReportPreview = () => {
             const startDate = document.getElementById('rpt-start').value;
             const endDate = document.getElementById('rpt-end').value;
             const filterType = document.getElementById('rpt-filter-type').value;
 
-            if(!startDate || !endDate) return showToast('Select date range', 'error');
+            if(!startDate || !endDate) return window.showToast('Select date range', 'error');
 
             const modal = document.getElementById('report-preview-modal');
             const content = document.getElementById('report-preview-content');
             modal.classList.remove('hidden');
-            content.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-3xl text-purple-600"></i><p class="mt-4 font-bold text-slate-500">Generating Crystal Report...</p></div>';
+            
+            let rows = "";
+            let count = 0;
+            let totalCost = 0;
 
-            try {
-                const q = collection(db, 'artifacts', appId, 'public', 'data', 'tokens'); 
-                const snapshot = await getDocs(q);
-                let rows = "";
-                let count = 0;
-                let totalCost = 0;
+            // Filter and sort logs
+            const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+            filteredLogs.sort((a, b) => {
+                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
+                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                return tA - tB; // Chronological
+            });
 
-                const processed = [];
-                snapshot.forEach(doc => processed.push(doc.data()));
+            filteredLogs.forEach(log => {
+                const emp = personnelMap[log.empId] || {};
+                const isConsumed = log.mealRedeemed === true;
                 
-                // Sort by date
-                processed.sort((a, b) => (a.issuedDate + a.issuedAt?.seconds) > (b.issuedDate + b.issuedAt?.seconds) ? 1 : -1);
-
-                processed.forEach(t => {
-                    if (t.issuedDate < startDate || t.issuedDate > endDate) return;
-                    
-                    if (filterType === 'DEPT' && !t.dept) return; 
-                    
-                    const timeStr = t.issuedAt ? new Date(t.issuedAt.seconds*1000).toLocaleTimeString() : '';
-                    
-                    let groupVal = '';
-                    if(filterType === 'DEPT') groupVal = t.dept;
-                    else if(filterType === 'ACCT') groupVal = t.account;
-                    else if(filterType === 'COMP') groupVal = t.company;
-                    else if(filterType === 'SITE') groupVal = t.site;
-
-                    rows += `
-                        <tr>
-                            <td>${t.issuedDate} ${timeStr}</td>
-                            <td>${t.empName}</td>
-                            <td>${t.empId}</td>
-                            <td>${t.dept}</td>
-                            <td>${t.site || '-'}</td>
-                            <td>${t.status}</td>
-                            ${filterType !== 'ALL' ? `<td class="font-bold text-purple-600">${groupVal || '-'}</td>` : ''}
-                            <td style="text-align:right">${formatCurrency(t.costs.total)}</td>
-                        </tr>
-                    `;
-                    
-                    if (t.status === 'CONSUMED') {
-                        totalCost += t.costs.total;
-                    }
-                    count++;
-                });
-
-                if(count === 0) {
-                    content.innerHTML = '<div class="text-center py-10 text-slate-500 font-bold">No records found for the selected criteria.</div>';
-                    return;
+                // Determine rate based on date
+                let rateForDay = 0;
+                if (log.date) {
+                    const dayName = getDayName(log.date);
+                    rateForDay = parseFloat(dailyRates[dayName]) || 0;
                 }
+                const cost = isConsumed ? rateForDay : 0;
+                
+                const dept = emp.department || emp.dept || '';
+                const acct = emp.accountName || 'CTE';
+                const comp = emp.companyName || '';
+                const site = emp.site || '';
 
-                content.innerHTML = `
-                    <div class="print-mode-report">
-                        <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end;">
-                            <div>
-                                <h1 style="font-size: 24px; font-weight: bold; margin: 0; text-transform: uppercase;">CANTEEN AUDIT REPORT</h1>
-                                <div style="font-size: 14px; margin-top: 5px;">Filter: ${filterType} | Period: ${startDate} to ${endDate}</div>
-                            </div>
-                            <div style="text-align: right; font-size: 12px;">
-                                <div>Generated: ${new Date().toLocaleString()}</div>
-                                <div>User: ${loggedInSysUser.name}</div>
-                            </div>
+                // Grouping Filter Logic
+                if (filterType === 'DEPT' && !dept) return; 
+                if (filterType === 'ACCT' && !acct) return;
+                if (filterType === 'COMP' && !comp) return;
+                if (filterType === 'SITE' && !site) return;
+                if (filterType === 'CONSUMED_ONLY' && !isConsumed) return;
+                
+                let groupVal = '';
+                if(filterType === 'DEPT') groupVal = dept;
+                else if(filterType === 'ACCT') groupVal = acct;
+                else if(filterType === 'COMP') groupVal = comp;
+                else if(filterType === 'SITE') groupVal = site;
+
+                const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
+
+                rows += `
+                    <tr>
+                        <td>${log.date} ${timeStr}</td>
+                        <td>${emp.name || 'Unknown'}</td>
+                        <td>${log.empId}</td>
+                        <td>${dept}</td>
+                        <td>${site || '-'}</td>
+                        <td>${statusStr}</td>
+                        ${filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY' ? `<td style="font-weight:bold; color:#a855f7;">${groupVal || '-'}</td>` : ''}
+                        <td style="text-align:right">${formatter.format(cost)}</td>
+                    </tr>
+                `;
+                totalCost += cost;
+                count++;
+            });
+
+            if(count === 0) {
+                content.innerHTML = '<div style="text-align:center; padding: 40px; color: #64748b; font-weight: bold;">No records found for the selected criteria.</div>';
+                return;
+            }
+
+            const extraHeader = (filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY') ? `<th>${filterType}</th>` : '';
+            const colSpanCount = (filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY') ? 7 : 6;
+
+            content.innerHTML = `
+                <div class="print-mode-report">
+                    <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end;">
+                        <div>
+                            <h1 style="font-size: 24px; font-weight: bold; margin: 0; text-transform: uppercase;">Enterprise Audit Report</h1>
+                            <div style="font-size: 14px; margin-top: 5px; color: #475569;">Filter Applied: ${filterType} | Period: ${startDate} to ${endDate}</div>
                         </div>
-                        
-                        <table class="report-table">
-                            <thead>
-                                <tr>
-                                    <th>Date/Time</th>
-                                    <th>Employee</th>
-                                    <th>ID</th>
-                                    <th>Department</th>
-                                    <th>Site</th>
-                                    <th>Status</th>
-                                    ${filterType !== 'ALL' ? `<th>${filterType}</th>` : ''}
-                                    <th style="text-align:right">Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                            <tfoot>
-                                <tr style="background-color: #f3f4f6; font-weight: bold;">
-                                    <td colspan="${filterType !== 'ALL' ? 7 : 6}" style="text-align:right; padding: 10px;">TOTAL EXPENDITURE (REDEEMED):</td>
-                                    <td style="text-align:right; padding: 10px;">${formatCurrency(totalCost)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                        
-                        <div style="margin-top: 40px; font-size: 12px; text-align: center; color: #666; border-top: 1px solid #ddd; padding-top: 10px;">
-                            *** CONFIDENTIAL SYSTEM REPORT ***
+                        <div style="text-align: right; font-size: 12px; color: #475569;">
+                            <div>Generated: ${new Date().toLocaleString()}</div>
+                            <div>System Node: ${loggedInSysUser?.username || 'SYSTEM'}</div>
                         </div>
                     </div>
-                `;
-
-            } catch (e) {
-                console.error(e);
-                content.innerHTML = '<div class="text-red-500 text-center py-10">Error generating report preview.</div>';
-            }
+                    
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Date/Time</th>
+                                <th>Employee Name</th>
+                                <th>Terminal ID</th>
+                                <th>Department</th>
+                                <th>Site</th>
+                                <th>Status</th>
+                                ${extraHeader}
+                                <th style="text-align:right">Cost Liability</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot>
+                            <tr style="background-color: #f8fafc;">
+                                <td colspan="${colSpanCount}" style="text-align:right; padding: 12px; font-weight: bold;">TOTAL EXPENDITURE:</td>
+                                <td style="text-align:right; padding: 12px; font-weight: bold; font-size: 1.1em;">${formatter.format(totalCost)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <div style="margin-top: 40px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
+                        *** CONFIDENTIAL ENTERPRISE SYSTEM RECORD ***
+                    </div>
+                </div>
+            `;
         };
 
-        window.generateReport = async () => {
+        window.generateCSV = () => {
             const startDate = document.getElementById('rpt-start').value;
             const endDate = document.getElementById('rpt-end').value;
             const filterType = document.getElementById('rpt-filter-type').value; 
 
-            if(!startDate || !endDate) return showToast('Select date range', 'error');
+            if(!startDate || !endDate) return window.showToast('Select date range', 'error');
 
             const btn = document.getElementById('rpt-gen-btn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Extracting...';
             btn.disabled = true;
 
             try {
-                const q = collection(db, 'artifacts', appId, 'public', 'data', 'tokens'); 
-                const snapshot = await getDocs(q);
-                
-                let csvHeaders = "";
-                let rowMapper = null;
-                const getTime = (t) => t.issuedAt ? new Date(t.issuedAt.seconds*1000).toLocaleTimeString() : '';
-
-                if (filterType === 'ACCT') {
-                    csvHeaders = "Date,Time,Account,Status,Cost\r\n";
-                    rowMapper = (t) => [`"${t.issuedDate}"`, `"${getTime(t)}"`, `"${t.account || '-'}"`, `"${t.status}"`, t.costs.total];
-                } 
-                else if (filterType === 'DEPT') {
-                    csvHeaders = "Date,Time,Department,Status,Cost\r\n";
-                    rowMapper = (t) => [`"${t.issuedDate}"`, `"${getTime(t)}"`, `"${t.dept}"`, `"${t.status}"`, t.costs.total];
-                } 
-                else if (filterType === 'COMP') {
-                    csvHeaders = "Date,Time,Company,Status,Cost\r\n";
-                    rowMapper = (t) => [`"${t.issuedDate}"`, `"${getTime(t)}"`, `"${t.company || '-'}"`, `"${t.status}"`, t.costs.total];
-                } 
-                else if (filterType === 'SITE') {
-                    csvHeaders = "Date,Time,Site,Status,Cost\r\n";
-                    rowMapper = (t) => [`"${t.issuedDate}"`, `"${getTime(t)}"`, `"${t.site || '-'}"`, `"${t.status}"`, t.costs.total];
-                }
-                else {
-                    csvHeaders = "Date,Time,Emp Name,ID,Site,Account,Department,Company,Status,Cost,Issued By,Consumed By\r\n";
-                    rowMapper = (t) => [
-                        `"${t.issuedDate}"`, `"${getTime(t)}"`, `"${t.empName}"`, `"${t.empId}"`,
-                        `"${t.site || '-'}"`, `"${t.account || '-'}"`, `"${t.dept}"`, `"${t.company || '-'}"`, 
-                        `"${t.status}"`, t.costs.total, `"${t.issuedBySysUser || '-'}"`, `"${t.consumedBySysUser || '-'}"`
-                    ];
-                }
-
+                let csvHeaders = "Date,Time,Emp Name,Emp ID,Department,Site,Account,Company,Status,Cost Applied,Cleared By,Redeemed By\r\n";
                 let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvHeaders;
                 let count = 0;
 
-                snapshot.forEach(doc => {
-                    const t = doc.data();
-                    if (t.issuedDate < startDate || t.issuedDate > endDate) return;
-                    csvContent += rowMapper(t).join(",") + "\r\n";
+                const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+
+                filteredLogs.forEach(log => {
+                    const emp = personnelMap[log.empId] || {};
+                    const isConsumed = log.mealRedeemed === true;
+                    
+                    if (filterType === 'CONSUMED_ONLY' && !isConsumed) return;
+
+                    // Determine rate based on date
+                    let rateForDay = 0;
+                    if (log.date) {
+                        const dayName = getDayName(log.date);
+                        rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                    }
+                    const cost = isConsumed ? rateForDay : 0;
+
+                    const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                    const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
+
+                    const row = [
+                        `"${log.date}"`, 
+                        `"${timeStr}"`, 
+                        `"${emp.name || ''}"`, 
+                        `"${log.empId}"`,
+                        `"${emp.department || emp.dept || ''}"`, 
+                        `"${emp.site || ''}"`, 
+                        `"${emp.accountName || 'CTE'}"`, 
+                        `"${emp.companyName || ''}"`, 
+                        `"${statusStr}"`, 
+                        cost, 
+                        `"${log.markedBy || ''}"`, 
+                        `"${log.redeemedBy || ''}"`
+                    ];
+
+                    csvContent += row.join(",") + "\r\n";
                     count++;
                 });
 
-                if (count === 0) showToast('No records found for period', 'error');
-                else {
+                if (count === 0) {
+                    window.showToast('No records found for extraction.', 'error');
+                } else {
                     const encodedUri = encodeURI(csvContent);
                     const link = document.createElement("a");
                     link.setAttribute("href", encodedUri);
-                    link.setAttribute("download", `Analytics_${filterType}_${startDate}_to_${endDate}.csv`);
+                    link.setAttribute("download", `Enterprise_Analytics_${filterType}_${startDate}_to_${endDate}.csv`);
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    showToast(`Data Exported (${count} records)`, 'success');
+                    window.showToast(`Data Exported (${count} rows)`, 'success');
                 }
-            } catch(e) { console.error("CSV Error:", e); showToast('Export failed', 'error'); } 
-            finally { btn.innerHTML = '<i class="fas fa-cloud-download-alt mr-2"></i> Extract Secure CSV'; btn.disabled = false; }
+            } catch(e) { 
+                console.error("CSV Error:", e); 
+                window.showToast('Data extraction failed', 'error'); 
+            } finally { 
+                btn.innerHTML = originalText; 
+                btn.disabled = false; 
+            }
         };
-
     </script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans min-h-screen flex flex-col transition-colors duration-500">
+<body class="bg-slate-50 dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 font-sans min-h-screen flex flex-col transition-colors duration-500">
 
-    <!-- PRINT OVERLAY CONTAINER -->
+    <!-- PRINT OVERLAY -->
     <div id="print-overlay"></div>
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-2"></div>
 
-    <!-- Navbar -->
-    <nav id="main-nav" class="bg-[#0f172a] dark:bg-[#020617] text-white shadow-xl hidden sticky top-0 z-40 border-b border-slate-800">
-        <div class="container mx-auto px-4 lg:px-6 py-3.5 flex flex-col lg:flex-row justify-between items-center gap-4">
-            <div class="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-start">
-                <div class="flex items-center gap-4">
-                    <div class="bg-purple-600 rounded-lg w-8 h-8 flex items-center justify-center shadow-[0_0_10px_rgba(147,51,234,0.4)]">
-                        <i class="fas fa-chart-pie text-white text-sm"></i>
-                    </div>
-                    <span class="font-extrabold text-xl tracking-tight text-white">CanteenOS <span class="text-xs font-bold text-purple-400 ml-1 uppercase tracking-wider">Analytics</span></span>
+    <!-- Navigation -->
+    <nav class="bg-[#0f172a] text-white shadow-xl sticky top-0 z-40 border-b border-slate-800/50">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-4">
+                <button onclick="goToDashboard()" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50 shadow-sm">
+                    <i class="fas fa-arrow-left text-sm"></i>
+                </button>
+                <div class="bg-[#a855f7] rounded-xl w-10 h-10 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                    <i class="fas fa-chart-pie text-white text-lg"></i>
                 </div>
+                <span class="font-extrabold text-2xl tracking-tight text-white hidden sm:block">Enterprise<span class="text-[#a855f7]">Analytics</span></span>
             </div>
             
-            <div class="flex items-center gap-3 w-full lg:w-auto justify-end overflow-x-auto hide-scroll pb-2 lg:pb-0">
-                <button id="theme-toggle-btn" onclick="toggleTheme()" class="w-8 h-8 flex shrink-0 items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700" title="Toggle Light/Dark Mode">
-                    <i class="fas fa-moon"></i>
-                </button>
-                <div id="role-display" class="text-[10px] font-bold uppercase bg-slate-800/50 border border-slate-700 px-3 py-1.5 rounded-lg text-slate-300 tracking-wider shrink-0 whitespace-nowrap">ANALYTICS VIEWER</div>
-                <button onclick="appLogout()" class="text-xs bg-slate-800 hover:bg-red-600 hover:shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-slate-700 hover:border-red-500 text-white px-4 py-2 rounded-lg font-bold transition-all duration-300 flex shrink-0 items-center"><i class="fas fa-power-off mr-2"></i> Disconnect</button>
+            <div class="flex items-center gap-4">
+                <div class="hidden md:flex items-center gap-2 text-[11px] font-bold uppercase bg-slate-800/80 border border-slate-700/50 px-4 py-2 rounded-lg text-[#a855f7] tracking-widest shadow-sm">
+                    <i class="fas fa-server"></i> TELEMETRY LIVE
+                </div>
             </div>
         </div>
     </nav>
 
-    <!-- Main Content -->
-    <main class="flex-grow container mx-auto px-4 py-4 lg:py-8">
+    <main class="flex-grow flex flex-col relative">
         
         <!-- LOADING VIEW -->
         <div id="view-loading" class="fixed inset-0 z-[60] bg-[#0f172a] flex flex-col items-center justify-center transition-opacity duration-500">
-            <div class="relative flex items-center justify-center">
-                <div class="absolute animate-ping inline-flex h-16 w-16 rounded-full bg-purple-400 opacity-20"></div>
-                <div class="relative inline-flex rounded-full h-8 w-8 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.6)]"></div>
+            <div class="relative flex items-center justify-center mb-8">
+                <!-- Outer subtle pulse/glow -->
+                <div class="absolute inline-flex h-40 w-40 rounded-full bg-purple-500/10 animate-pulse"></div>
+                <!-- Inner solid dot with glow -->
+                <div class="relative inline-flex rounded-full h-12 w-12 bg-[#a855f7] shadow-[0_0_40px_rgba(168,85,247,0.8)]"></div>
             </div>
-            <div class="mt-8 text-center space-y-2">
-                <h2 class="text-white font-bold text-xl tracking-tight">CanteenOS <span class="text-purple-500">Analytics</span></h2>
-                <p class="text-slate-400 text-xs uppercase tracking-[0.2em] font-medium">Initializing Connection</p>
+            <h2 class="text-white font-bold text-2xl tracking-tight z-10 relative mt-2">Syncing Financials...</h2>
+        </div>
+
+        <!-- UNAUTHORIZED VIEW -->
+        <div id="view-unauthorized" class="hidden absolute inset-0 z-[55] bg-[#0f172a] flex-col items-center justify-center text-center px-6 animate-fade-in">
+            <div class="bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 shadow-2xl max-w-md w-full relative overflow-hidden">
+                <div class="absolute -top-20 -right-20 w-40 h-40 bg-red-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <i class="fas fa-shield-alt text-6xl text-red-500 mb-6 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]"></i>
+                <h2 class="text-2xl font-extrabold text-white mb-3">Access Denied</h2>
+                <p class="text-slate-400 text-sm mb-8 leading-relaxed font-medium">Valid session token missing. Please authenticate through the primary Enterprise Dashboard to access this terminal.</p>
+                <button onclick="goToDashboard()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl border border-slate-700 transition-colors text-sm tracking-wider uppercase">
+                    Return to Dashboard
+                </button>
             </div>
         </div>
 
-        <!-- LOGIN PORTAL -->
-        <div id="view-login" class="fixed inset-0 z-50 bg-[#0B1120] hidden flex flex-col items-center justify-center animate-fade-in" style="background-image: linear-gradient(rgba(11, 17, 32, 0.85), rgba(11, 17, 32, 0.95)), url('https://i.ibb.co/Q31BytM7/AZp-Hxf-Rl-RQtf34v3-Jc5i-EA-AZp-Hxf-Rl-Ws-x-Ty3-Xyxd-CMA.jpg'); background-size: cover; background-position: center;">
-            <div class="w-full max-w-[1000px] grid grid-cols-1 md:grid-cols-2 gap-12 p-8 items-center flex-grow">
-                <div class="flex flex-col items-start hidden md:flex">
-                    <div class="bg-purple-600 w-16 h-16 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(147,51,234,0.4)] mb-6">
-                        <i class="fas fa-chart-pie text-white text-3xl"></i>
-                    </div>
-                    <h1 class="text-[2.75rem] font-extrabold text-white mb-0 tracking-tight leading-tight drop-shadow-lg">CanteenOS</h1>
-                    <h2 class="text-[2.75rem] font-extrabold text-purple-500 mb-6 tracking-tight leading-tight drop-shadow-lg">Enterprise Analytics</h2>
-                    <p class="text-slate-300 text-sm leading-relaxed max-w-sm drop-shadow-md font-medium">
-                        Secure reporting module. Access real-time fiscal KPIs, consumption velocity, and export compliance audits.
-                    </p>
-                </div>
-                
-                <div class="w-full max-w-md mx-auto relative">
-                    <div class="bg-[#131B2B]/90 backdrop-blur-xl border border-[#1F2937] rounded-[2rem] p-10 shadow-2xl relative z-10 overflow-hidden">
-                        <div class="absolute -top-24 -right-24 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
-                        
-                        <div class="text-center mb-10 relative z-20">
-                            <h2 class="text-2xl font-extrabold text-white mb-2">Analytics Authentication</h2>
-                            <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Authorized Personnel Only</p>
-                        </div>
-                        <form onsubmit="appLogin(event)" class="space-y-6 relative z-20">
-                            <div>
-                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Terminal ID</label>
-                                <input type="text" id="login-username" class="w-full px-4 py-3 border border-[#1F2937] rounded-xl bg-[#0B1120]/80 text-sm text-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition uppercase" required placeholder="E.G. ADMIN">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Secret Key</label>
-                                <input type="password" id="login-pin" class="w-full px-4 py-3 border border-[#1F2937] rounded-xl bg-[#0B1120]/80 text-sm text-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition tracking-widest" required placeholder="••••••••">
-                            </div>
-                            <div id="login-error" class="hidden text-red-400 text-xs text-center font-bold bg-red-500/10 py-3 rounded-lg border border-red-500/20"><i class="fas fa-shield-alt mr-2"></i> Access Denied</div>
-                            
-                            <div class="pt-4">
-                                <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl shadow-[0_0_20px_rgba(147,51,234,0.4)] transition-all transform active:scale-[0.98] text-sm">Verify & Connect</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="w-full text-center pb-8 pt-4 relative z-20">
-                <p class="text-[11px] text-slate-400 font-bold uppercase tracking-widest drop-shadow-md opacity-80">
-                    CanteenOS Professional Design by Accounting Advisor & Solutions @2026
-                </p>
-            </div>
-        </div>
-
-        <!-- REPORT DASHBOARD -->
-        <div id="view-report" class="hidden max-w-7xl mx-auto space-y-8 animate-fade-in relative">
+        <!-- MAIN REPORTING VIEW -->
+        <div id="view-report" class="hidden container mx-auto px-6 py-8 animate-fade-in flex-grow flex flex-col space-y-8">
             
             <!-- MONTHLY KPIs -->
-            <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2">Fiscal Month Overview</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
-                    <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Accumulated Cost Liability</div>
-                    <div id="rpt-month-spend" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">LKR 0.00</div>
-                    <i class="fas fa-coins text-indigo-100 dark:text-indigo-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
-                </div>
-                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
-                    <div class="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Security Tokens Issued</div>
-                    <div id="rpt-month-issued" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
-                    <i class="fas fa-ticket-alt text-purple-100 dark:text-purple-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
-                </div>
-                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
-                    <div class="absolute top-0 left-0 w-1 h-full bg-teal-500"></div>
-                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Canteen Redemptions</div>
-                    <div id="rpt-month-consumed" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
-                    <i class="fas fa-check-double text-teal-100 dark:text-teal-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+            <div>
+                <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2">Fiscal Month Overview</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Accumulated Cost Liability</div>
+                        <div id="rpt-month-spend" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">LKR 0.00</div>
+                        <i class="fas fa-coins text-indigo-100 dark:text-indigo-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-[#a855f7]"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Clearances Issued</div>
+                        <div id="rpt-month-issued" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
+                        <i class="fas fa-ticket-alt text-[#a855f7]/10 dark:text-[#a855f7]/20 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-teal-500"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Meals Consumed / Redeemed</div>
+                        <div id="rpt-month-consumed" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
+                        <i class="fas fa-check-double text-teal-100 dark:text-teal-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
                 </div>
             </div>
 
             <!-- DAILY KPIs -->
-            <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2 mt-10">Today's Real-Time Metrics</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-gradient-to-br from-purple-500 to-purple-600 p-6 rounded-2xl shadow-lg shadow-purple-500/20 text-white relative overflow-hidden">
-                    <div class="text-[10px] font-bold text-purple-200 uppercase tracking-widest mb-1">Today's Gross Cost</div>
-                    <div id="rpt-total-spend" class="text-3xl font-black tracking-tight">LKR 0.00</div>
-                    <i class="fas fa-chart-line text-purple-400/30 text-6xl absolute -right-2 -bottom-2"></i>
-                </div>
-                <div class="bg-gradient-to-br from-orange-400 to-orange-500 p-6 rounded-2xl shadow-lg shadow-orange-500/20 text-white relative overflow-hidden">
-                    <div class="text-[10px] font-bold text-orange-200 uppercase tracking-widest mb-1">Active Entries (Today)</div>
-                    <div id="rpt-tokens-issued-today" class="text-3xl font-black tracking-tight">0</div>
-                    <i class="fas fa-door-open text-orange-300/30 text-6xl absolute -right-2 -bottom-2"></i>
-                </div>
-                <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-2xl shadow-lg shadow-emerald-500/20 text-white relative overflow-hidden">
-                    <div class="text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">Cleared Meals (Today)</div>
-                    <div id="rpt-tokens-consumed-today" class="text-3xl font-black tracking-tight">0</div>
-                    <i class="fas fa-utensils text-emerald-400/30 text-6xl absolute -right-2 -bottom-2"></i>
+            <div>
+                <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2">Today's Real-Time Metrics</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-blue-200 uppercase tracking-widest mb-1">Today's Gross Cost</div>
+                        <div id="rpt-total-spend" class="text-3xl font-black tracking-tight">LKR 0.00</div>
+                        <i class="fas fa-chart-line text-blue-400/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
+                    <div class="bg-gradient-to-br from-orange-400 to-orange-500 p-6 rounded-2xl shadow-lg shadow-orange-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-orange-200 uppercase tracking-widest mb-1">Active Entries (Today)</div>
+                        <div id="rpt-tokens-issued-today" class="text-3xl font-black tracking-tight">0</div>
+                        <i class="fas fa-door-open text-orange-300/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
+                    <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-2xl shadow-lg shadow-emerald-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">Cleared Meals (Today)</div>
+                        <div id="rpt-tokens-consumed-today" class="text-3xl font-black tracking-tight">0</div>
+                        <i class="fas fa-utensils text-emerald-400/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 col-span-1 lg:col-span-2"><h4 class="font-bold text-slate-800 dark:text-white mb-8 border-b border-slate-100 dark:border-slate-700/50 pb-2 flex items-center"><i class="fas fa-chart-bar text-slate-400 mr-2"></i> 7-Day Velocity Trend</h4><div id="rpt-chart-trend" class="flex items-end justify-between h-48 space-x-3"></div></div>
-                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"><h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Site</h4><div id="rpt-chart-site" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div></div>
-                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"><h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Deptment</h4><div id="rpt-chart-dept" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div></div>
-                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"><h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Manpower Company</h4><div id="rpt-chart-comp" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div></div>
-                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8"><h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Account</h4><div id="rpt-chart-acct" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div></div>
+            <!-- CHARTS & DISTRIBUTIONS -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 7-Day Trend (Full Width) -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-8 col-span-1 lg:col-span-2">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-8 border-b border-slate-100 dark:border-slate-700/50 pb-2 flex items-center"><i class="fas fa-chart-bar text-slate-400 mr-2"></i> 7-Day Financial Velocity Trend</h4>
+                    <div id="rpt-chart-trend" class="flex items-end justify-between h-48 space-x-3"></div>
+                </div>
+                
+                <!-- Demographics -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Site / Facility</h4>
+                    <div id="rpt-chart-site" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Department</h4>
+                    <div id="rpt-chart-dept" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Company</h4>
+                    <div id="rpt-chart-comp" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost Distribution by Account / Cost Center</h4>
+                    <div id="rpt-chart-acct" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
             </div>
 
-            <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-8">
-                <div class="px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 font-bold text-slate-800 dark:text-white flex items-center justify-between">
-                    <div class="flex items-center"><i class="fas fa-list-ul text-slate-400 mr-3"></i> System Transaction Feed (Live)</div>
+            <!-- LIVE TRANSACTION FEED -->
+            <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 overflow-hidden">
+                <div class="px-6 py-5 border-b border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-900/50 font-bold text-slate-800 dark:text-white flex items-center justify-between">
+                    <div class="flex items-center"><i class="fas fa-list-ul text-slate-400 mr-3"></i> System Transaction Feed (Today's Live Ledger)</div>
                 </div>
-                <div class="max-h-80 overflow-y-auto">
+                <div class="max-h-80 overflow-y-auto hide-scroll">
                     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700/50">
                         <thead class="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
                             <tr>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Personnel</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Terminal ID</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Department</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Site Code</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">State</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Ledger Value</th>
-                                <th class="px-6 py-3 text-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Revoke</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Personnel Profile</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Time</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Department</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Site</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Status</th>
+                                <th class="px-6 py-4 text-right text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Cost Applied</th>
                             </tr>
                         </thead>
                         <tbody id="report-table-body" class="bg-slate-50 dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700/50"></tbody>
@@ -860,44 +735,46 @@
                 </div>
             </div>
 
-            <!-- INTELLIGENCE EXPORT -->
-            <div class="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 rounded-2xl shadow-xl border border-slate-700 dark:border-slate-800 p-8 mt-8 mb-12 relative overflow-hidden group">
+            <!-- DATA INTELLIGENCE CENTER (EXPORTS) -->
+            <div class="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-900 dark:to-slate-800 rounded-2xl shadow-xl border border-slate-700 dark:border-slate-700/50 p-8 relative overflow-hidden group">
+                <!-- Abstract decorative bg -->
                 <div class="absolute right-0 top-0 w-96 h-full bg-purple-600/5 skew-x-12 transform origin-bottom pointer-events-none"></div>
                 <div class="absolute right-20 top-0 w-48 h-full bg-indigo-600/5 -skew-x-12 transform origin-top pointer-events-none"></div>
                 
                 <div class="flex items-center justify-between mb-8 relative z-10 border-b border-slate-700/50 pb-4">
                     <div>
                         <h3 class="font-black text-3xl text-white tracking-tight flex items-center gap-3">
-                            <div class="bg-purple-600 p-2 rounded-lg shadow-lg shadow-purple-500/20"><i class="fas fa-database text-white text-xl"></i></div>
+                            <div class="bg-[#a855f7] p-2 rounded-lg shadow-lg shadow-purple-500/20"><i class="fas fa-database text-white text-xl"></i></div>
                             Data Intelligence Center
                         </h3>
                         <p class="text-slate-400 text-sm mt-1 ml-14 font-medium">Generate secure audit reports and extract system telemetry.</p>
                     </div>
                     <div class="hidden md:block">
-                        <span class="bg-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-slate-700">Restricted Access</span>
+                        <span class="bg-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-slate-700">Analytics Root</span>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
-                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors group/card">
-                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="far fa-calendar-alt mr-2"></i> Query Range Start</label>
-                        <input type="date" id="rpt-start" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner">
+                    <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 hover:border-[#a855f7]/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-[#a855f7] mb-3 uppercase tracking-widest"><i class="far fa-calendar-alt mr-2"></i> Query Range Start</label>
+                        <input type="date" id="rpt-start" class="w-full bg-slate-900 border border-slate-700/50 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-[#a855f7] focus:border-[#a855f7] outline-none transition shadow-inner font-mono">
                     </div>
                     
-                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors group/card">
-                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="far fa-calendar-check mr-2"></i> Query Range End</label>
-                        <input type="date" id="rpt-end" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner">
+                    <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 hover:border-[#a855f7]/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-[#a855f7] mb-3 uppercase tracking-widest"><i class="far fa-calendar-check mr-2"></i> Query Range End</label>
+                        <input type="date" id="rpt-end" class="w-full bg-slate-900 border border-slate-700/50 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-[#a855f7] focus:border-[#a855f7] outline-none transition shadow-inner font-mono">
                     </div>
                     
-                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors group/card">
-                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="fas fa-filter mr-2"></i> Data Matrix Filter</label>
+                    <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 hover:border-[#a855f7]/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-[#a855f7] mb-3 uppercase tracking-widest"><i class="fas fa-filter mr-2"></i> Data Matrix Filter</label>
                         <div class="relative">
-                            <select id="rpt-filter-type" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner appearance-none cursor-pointer font-medium">
-                                <option value="ALL">Raw Terminal Audit (All Data)</option>
+                            <select id="rpt-filter-type" class="w-full bg-slate-900 border border-slate-700/50 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-[#a855f7] focus:border-[#a855f7] outline-none transition shadow-inner appearance-none cursor-pointer font-medium">
+                                <option value="ALL">Raw Terminal Audit (All Actions)</option>
+                                <option value="CONSUMED_ONLY">Financial Ledger (Redeemed Only)</option>
                                 <option value="DEPT">Aggregate by Department</option>
                                 <option value="COMP">Aggregate by Organization</option>
-                                <option value="ACCT">Aggregate by Cost Center</option>
-                                <option value="SITE">Aggregate by Facility</option>
+                                <option value="ACCT">Aggregate by Cost Center / Account</option>
+                                <option value="SITE">Aggregate by Facility / Site</option>
                             </select>
                             <div class="absolute right-4 top-3.5 text-slate-500 pointer-events-none"><i class="fas fa-chevron-down text-xs"></i></div>
                         </div>
@@ -905,30 +782,29 @@
                 </div>
 
                 <div class="mt-8 pt-6 border-t border-slate-700/50 flex flex-col sm:flex-row gap-4 justify-end relative z-10">
-                    <button onclick="generateReportPreview()" class="px-6 py-3.5 rounded-xl font-bold text-sm bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white transition flex items-center justify-center shadow-lg"><i class="fas fa-eye mr-2"></i> Preview Report</button>
-                    <button onclick="generateReport()" id="rpt-gen-btn" class="px-8 py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-transparent shadow-lg shadow-purple-900/50 transition transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center"><i class="fas fa-cloud-download-alt mr-2"></i> Extract Secure CSV</button>
+                    <button onclick="generateReportPreview()" class="px-6 py-3.5 rounded-xl font-bold text-sm bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white transition flex items-center justify-center shadow-lg"><i class="fas fa-eye mr-2"></i> Crystal Preview</button>
+                    <button onclick="generateCSV()" id="rpt-gen-btn" class="px-8 py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-[#a855f7] to-[#9333ea] hover:from-[#9333ea] hover:to-[#7e22ce] text-white border border-transparent shadow-lg shadow-purple-900/50 transition transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center"><i class="fas fa-cloud-download-alt mr-2"></i> Extract Secure CSV</button>
                 </div>
             </div>
+            
         </div>
     </main>
 
-    <!-- CRYSTAL REPORT PREVIEW MODAL -->
+    <!-- REPORT PREVIEW MODAL -->
     <div id="report-preview-modal" class="fixed inset-0 bg-slate-900/90 hidden z-50 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white w-full max-w-5xl h-[90vh] rounded-xl shadow-2xl overflow-hidden flex flex-col relative">
-            <div class="bg-slate-100 border-b border-slate-200 p-4 flex justify-between items-center">
-                <h3 class="font-bold text-slate-700"><i class="fas fa-print mr-2"></i> Report Preview</h3>
-                <div class="flex gap-2">
-                    <button onclick="printReport()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700"><i class="fas fa-print mr-2"></i> Print</button>
-                    <button onclick="document.getElementById('report-preview-modal').classList.add('hidden')" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-300"><i class="fas fa-times"></i> Close</button>
+        <div class="bg-white w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-fade-in">
+            <div class="bg-slate-100 border-b border-slate-200 p-5 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 text-lg flex items-center"><i class="fas fa-print mr-3 text-[#a855f7]"></i> Audit Report Preview</h3>
+                <div class="flex gap-3">
+                    <button onclick="printReport()" class="bg-[#a855f7] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#9333ea] shadow-md transition flex items-center"><i class="fas fa-print mr-2"></i> Print Document</button>
+                    <button onclick="document.getElementById('report-preview-modal').classList.add('hidden')" class="bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-300 transition flex items-center"><i class="fas fa-times mr-2"></i> Close</button>
                 </div>
             </div>
-            <div id="report-preview-content" class="flex-grow overflow-auto p-8 bg-white text-black">
-                <!-- Content injected here -->
+            <div id="report-preview-content" class="flex-grow overflow-auto p-10 bg-white text-black hide-scroll">
+                <!-- Content injected here via JS -->
             </div>
         </div>
     </div>
 
-    <!-- Toast -->
-    <div id="toast" class="fixed bottom-6 right-6 translate-y-20 opacity-0 transition-all duration-300 z-[100]"><div class="flex items-center space-x-3 px-6 py-4 rounded-xl shadow-2xl font-medium border border-white/10"><i id="toast-icon" class="fas text-xl"></i><span id="toast-message"></span></div></div>
 </body>
 </html>
