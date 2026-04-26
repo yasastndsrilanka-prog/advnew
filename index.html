@@ -87,30 +87,32 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, doc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Environment Firebase Config or Fallbacks
-        let firebaseConfig = {};
-        try {
-            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        } catch(e) {
-            console.warn("Using fallback environment variables for Firebase.");
-        }
+        // ==========================================
+        // ADD YOUR LOCAL FIREBASE CREDENTIALS HERE
+        // ==========================================
+        let firebaseConfig = {
+            apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "YOUR_API_KEY",
+            authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "YOUR_PROJECT_ID",
+            storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "YOUR_SENDER_ID",
+            appId: import.meta.env?.VITE_FIREBASE_APP_ID || "YOUR_APP_ID"
+        };
 
-        if (!firebaseConfig.apiKey) {
-            firebaseConfig = {
-                apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
-                authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
-                projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
-                storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
-                messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-                appId: import.meta.env?.VITE_FIREBASE_APP_ID || ""
-            };
+        // Fallback for cloud environment execution
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch(e) {
+            console.warn("Using local configuration.");
         }
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // Explicitly use the environment app ID to satisfy Canvas Security Rules
+        // This targets your exact database tree as shown in the screenshot
         const targetDbAppId = typeof __app_id !== 'undefined' ? __app_id : 'canteen-os-live';
         
         // --- State Variables ---
@@ -142,11 +144,8 @@
             return 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
         function getTodayStr() { 
-            const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            return `${yyyy}-${mm}-${dd}`;
+            // Reverted to UTC to match the exact string format saved by your scanners
+            return new Date().toISOString().split('T')[0];
         }
         
         function getDayName(dateString) {
@@ -220,7 +219,7 @@
         const loadData = () => {
             if (!auth.currentUser) return;
             
-            // 1. Fetch system_users directly from canteen-os-live target
+            // 1. Fetch system_users
             const qSys = query(collection(db, 'artifacts', targetDbAppId, 'public', 'data', 'system_users'));
             onSnapshot(qSys, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
@@ -234,21 +233,17 @@
                 }
             }, (error) => console.error("Error fetching system users:", error));
 
-            // 2. Fetch settings
-            const settingsRef = collection(db, 'artifacts', targetDbAppId, 'public', 'data', 'settings');
-            onSnapshot(settingsRef, (snap) => {
-                snap.forEach(docSnap => {
+            // 2. Fetch settings (Specifically targeting the 'meal_prices' document)
+            const settingsRef = doc(db, 'artifacts', targetDbAppId, 'public', 'data', 'settings', 'meal_prices');
+            onSnapshot(settingsRef, (docSnap) => {
+                if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.dailyRates) {
+                    if (data.prices) {
+                        dailyRates = data.prices;
+                    } else if (data.dailyRates) {
                         dailyRates = data.dailyRates;
-                    } else if (data.mealTokenValue !== undefined || data.defaultRate !== undefined || data.value !== undefined) {
-                        const val = parseFloat(data.mealTokenValue || data.defaultRate || data.value) || 0;
-                        dailyRates = {
-                            "Sunday": val, "Monday": val, "Tuesday": val, "Wednesday": val,
-                            "Thursday": val, "Friday": val, "Saturday": val
-                        };
                     }
-                });
+                }
                 calculateDashboardStats();
             }, (error) => console.error("Error fetching settings:", error));
 
@@ -275,74 +270,26 @@
         initAuth();
 
         function calculateDashboardStats() {
-            const today = new Date();
-            const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+            const todayStr = getTodayStr();
             const monthStr = todayStr.substring(0, 7);
 
             let tIssued = 0, tRedeemed = 0, tValue = 0;
             let mIssued = 0, mRedeemed = 0, mValue = 0;
 
             allTokens.forEach(log => {
-                // Aggressively match ANY potential "redeemed" status field
-                const isRedeemed = 
-                    log.mealRedeemed === true || 
-                    log.mealRedeemed === 'true' || 
-                    log.redeemed === true || 
-                    log.isRedeemed === true || 
-                    (log.status && String(log.status).toUpperCase() === 'REDEEMED') ||
-                    (log.state && String(log.state).toUpperCase() === 'REDEEMED');
-                
-                // Aggressively extract date from multiple potential Firebase fields
-                let rawDate = log.date || log.dateStr || log.timestamp || log.createdAt || log.issuedAt || log.redeemedAt;
-                
-                // If standard fields fail, check if any property is a Firebase Timestamp
-                if (!rawDate) {
-                    for (const key in log) {
-                        if (log[key] && typeof log[key].toDate === 'function') {
-                            rawDate = log[key]; break;
-                        }
-                    }
-                }
-
-                let logDateStr = "";
-                if (rawDate) {
-                    let d;
-                    if (typeof rawDate.toDate === 'function') {
-                        d = rawDate.toDate(); // Firebase Timestamp
-                    } else if (typeof rawDate === 'number') {
-                        d = new Date(rawDate); // Milliseconds
-                    } else if (typeof rawDate === 'string') {
-                        d = new Date(rawDate); // ISO string
-                        if (isNaN(d.getTime())) { // Handle custom formats like DD/MM/YYYY
-                            const parts = rawDate.split(/[-/]/);
-                            if (parts.length === 3) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-                        }
-                    }
-                    
-                    if (d && !isNaN(d.getTime())) {
-                        logDateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                    }
-                }
-                
-                // Skip if we STILL couldn't parse a valid date
+                // Match the exact schema used by the CanteenOS generators
+                const logDateStr = log.issuedDate || log.date;
                 if (!logDateStr) return;
+
+                const isRedeemed = log.status === 'CONSUMED' || log.status === 'REDEEMED' || log.mealRedeemed === true;
                 
-                // Value/Rate Calculation
+                // Prioritize the exact LKR value saved in the token at the time of scanning
                 let rateForDay = 0;
-                const dayName = getDayName(logDateStr);
-                
-                // 1. Try to get rate from settings based on Day
-                if (dailyRates && dailyRates[dayName]) {
-                    rateForDay = parseFloat(dailyRates[dayName]);
-                }
-                // 2. Fallback: Check if the token itself has a saved price
-                if (!rateForDay || rateForDay === 0) {
-                    rateForDay = parseFloat(log.value || log.price || log.rate || log.amount || 0); 
-                }
-                // 3. Fallback: Use ANY defined positive rate in settings
-                if (!rateForDay || rateForDay === 0) {
-                    const anyRate = Object.values(dailyRates).find(v => typeof v === 'number' && v > 0);
-                    if (anyRate) rateForDay = anyRate;
+                if (log.costs && typeof log.costs.total === 'number') {
+                    rateForDay = log.costs.total;
+                } else {
+                    const dayName = getDayName(logDateStr);
+                    rateForDay = parseFloat(dailyRates[dayName]) || 0;
                 }
 
                 // Aggregate Today's Stats
