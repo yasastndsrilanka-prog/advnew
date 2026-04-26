@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Security | Attendance Check-in</title>
+    <title>Enterprise | Attendance Terminal</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -80,8 +80,8 @@
 
         // State
         let SYSTEM_USERS = {};
-        let EMPLOYEES = {};
-        let TOKENS = [];
+        let personnelList = [];
+        let attendanceLogs = [];
         let WEEKLY_PRICES = { Monday: 80, Tuesday: 80, Wednesday: 80, Thursday: 80, Friday: 80, Saturday: 80, Sunday: 80 };
         let alcMealItems = {};
         
@@ -172,48 +172,44 @@
 
         const loadData = () => {
             // Load System Users to Verify Admin Privileges
-            const sysRef = collection(db, 'artifacts', appId, 'public', 'data', 'system_users');
-            onSnapshot(sysRef, (snap) => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'), (snap) => {
                 SYSTEM_USERS = {};
                 snap.forEach(doc => { SYSTEM_USERS[doc.id] = doc.data(); });
                 window.renderAttendance(); 
             });
 
             // 1. Fetch EMPLOYEES collection as per index (90).html path mapping
-            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
-            onSnapshot(pRef, (snap) => {
-                EMPLOYEES = {};
-                snap.forEach(doc => { EMPLOYEES[doc.id] = { id: doc.id, empId: doc.id, ...doc.data() }; });
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), (snap) => {
+                personnelList = [];
+                snap.forEach(doc => personnelList.push({ id: doc.id, empId: doc.id, ...doc.data() }));
                 window.renderAttendance();
             });
 
             // 2. Fetch TOKENS collection as per index (90).html path mapping
-            const tRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
-            onSnapshot(tRef, (snap) => {
-                const today = getTodayStr();
-                TOKENS = [];
+            const today = getTodayStr();
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), (snap) => {
+                attendanceLogs = [];
                 snap.forEach(doc => {
                     const data = doc.data();
                     if (data.issuedDate === today || data.date === today) {
-                        TOKENS.push({ id: doc.id, ...data });
+                        attendanceLogs.push({ id: doc.id, ...data });
                     }
                 });
                 window.renderAttendance();
             });
 
             // 3. Fetch SETTINGS collection to acquire meal_prices & alc configuration
-            const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
-            onSnapshot(settingsRef, (snap) => {
-                snap.forEach(docSnap => {
-                    const data = docSnap.data();
-                    if (docSnap.id === 'meal_prices' || data.prices) {
-                        WEEKLY_PRICES = data.prices || data.dailyRates || WEEKLY_PRICES;
-                    }
-                    if (data.alcMealItems) {
-                        alcMealItems = data.alcMealItems;
-                    }
-                });
-                updateAlcDropdown();
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'meal_prices'), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().prices) {
+                    Object.assign(WEEKLY_PRICES, docSnap.data().prices);
+                }
+            });
+            
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen'), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().alcMealItems) {
+                    alcMealItems = docSnap.data().alcMealItems;
+                    updateAlcDropdown();
+                }
             });
         };
 
@@ -291,7 +287,7 @@
             const siteCounts = {};
             let totalScanned = 0;
             
-            TOKENS.forEach(t => { 
+            attendanceLogs.forEach(t => { 
                 markedLogsMap[t.empId] = t; 
                 // Tally Site Scans
                 const siteName = t.site && t.site !== '-' ? t.site : 'Unassigned Site';
@@ -318,7 +314,7 @@
             let totalActive = 0;
             let clearedCount = 0;
 
-            let filteredPersonnel = Object.values(EMPLOYEES).filter(p => {
+            let filteredPersonnel = personnelList.filter(p => {
                 // Ensure we skip incomplete records
                 if (!p.name || !p.id) return false;
                 totalActive++; 
@@ -347,33 +343,33 @@
 
                 html += `
                     <div class="flex items-center justify-between p-4 rounded-2xl border ${isMarked ? 'bg-emerald-900/10 border-emerald-900/40' : 'bg-slate-800 border-slate-700'} hover:shadow-lg transition-all duration-300">
-                        <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-4 shrink-0 overflow-hidden">
                             <div class="w-12 h-12 rounded-full shrink-0 ${isMarked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700 text-slate-300'} flex items-center justify-center font-bold text-lg shadow-inner">
                                 ${(p.name || 'U').charAt(0)}
                             </div>
-                            <div>
-                                <h4 class="font-bold text-white text-base">${p.name}</h4>
-                                <div class="text-xs text-slate-400 flex items-center mt-1">
-                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 mr-2">${p.id}</span>
-                                    <span>${displayDept}</span>
+                            <div class="min-w-0">
+                                <h4 class="font-bold text-white text-base truncate">${p.name}</h4>
+                                <div class="text-xs text-slate-400 flex items-center mt-1 flex-wrap gap-2">
+                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600">${p.id}</span>
+                                    <span class="truncate">${displayDept}</span>
                                     ${mealLabel}
                                 </div>
                             </div>
                         </div>
-                        <div class="shrink-0">
+                        <div class="shrink-0 pl-2">
                             ${isMarked ? `
                                 <div class="flex items-center gap-2">
-                                    <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-4 py-2.5 rounded-xl border border-emerald-800/50 shadow-sm">
+                                    <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-3 py-2 rounded-xl border border-emerald-800/50 shadow-sm">
                                         <i class="fas fa-check-circle"></i> <span class="hidden sm:inline">Cleared</span>
                                     </div>
                                     ${isAdmin ? `
-                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
+                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
                                         <i class="fas fa-arrow-rotate-left"></i>
                                     </button>` : ''}
                                 </div>
                             ` : `
-                                <div class="text-slate-500 font-bold text-[10px] uppercase tracking-widest px-4 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700 flex items-center gap-2 shadow-inner">
-                                    <i class="fas fa-qrcode text-slate-400"></i> Awaiting Scan
+                                <div class="text-slate-500 font-bold text-[10px] uppercase tracking-widest px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700 flex items-center gap-2 shadow-inner">
+                                    <i class="fas fa-qrcode text-slate-400"></i> <span class="hidden sm:inline">Awaiting Scan</span>
                                 </div>
                             `}
                         </div>
@@ -407,7 +403,7 @@
             showScanResultModal('VERIFYING...', 'Processing...', 'info');
 
             // Find employee directly via mapped values
-            let emp = Object.values(EMPLOYEES).find(e => e.id === val || e.empId === val);
+            let emp = personnelList.find(e => e.id === val || e.empId === val);
 
             if (!emp) {
                 return showScanResultModal('ACCESS DENIED', 'Invalid Terminal ID', 'error');
@@ -439,7 +435,7 @@
             }
 
             const todayStr = getTodayStr();
-            const alreadyMarked = TOKENS.find(t => t.empId === pId && (t.issuedDate === todayStr || t.date === todayStr));
+            const alreadyMarked = attendanceLogs.find(t => t.empId === pId);
 
             if (alreadyMarked) {
                 return showScanResultModal('ALREADY ACTIVE', `${emp.name} has already accessed.`, 'warning');
@@ -622,7 +618,7 @@
         </div>
 
         <!-- MAIN ATTENDANCE VIEW -->
-        <div id="view-attendance" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0 overflow-y-auto hide-scroll">
+        <div id="view-attendance" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0">
             
             <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 shrink-0 gap-4">
                 <div>
@@ -726,15 +722,16 @@
                 </div>
             </div>
 
-            <!-- Scrolling List Area -->
-            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner p-2 md:p-4 flex-col overflow-hidden">
-                <div class="space-y-3" id="attendance-list">
+            <!-- Scrolling List Area (Nesting Flex to scroll naturally) -->
+            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner flex flex-col flex-1 min-h-0 overflow-hidden">
+                <div class="overflow-y-auto p-4 space-y-3 hide-scroll flex-1" id="attendance-list">
                     <div class="text-center py-20 text-slate-400">
                         <i class="fas fa-circle-notch fa-spin text-3xl mb-4 text-blue-500"></i>
                         <p class="font-medium tracking-wide">Syncing Personnel Database...</p>
                     </div>
                 </div>
             </div>
+            
         </div>
     </main>
 
