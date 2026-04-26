@@ -179,41 +179,38 @@
                 window.renderAttendance(); 
             });
 
-            // Load Employees
-            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
+            // Reverted back to `personnel` based on user's actual database schema requirement
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
             onSnapshot(pRef, (snap) => {
                 EMPLOYEES = {};
-                snap.forEach(doc => { EMPLOYEES[doc.id] = { id: doc.id, ...doc.data() }; });
+                snap.forEach(doc => { EMPLOYEES[doc.id] = { id: doc.id, empId: doc.id, ...doc.data() }; });
                 window.renderAttendance();
             });
 
-            // Load Tokens (Today's Logs)
-            const tRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
+            // Reverted back to `attendance_logs` for reading today's tokens
+            const tRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
             onSnapshot(tRef, (snap) => {
                 const today = getTodayStr();
                 TOKENS = [];
                 snap.forEach(doc => {
                     const data = doc.data();
-                    if (data.issuedDate === today) {
+                    if (data.date === today || data.issuedDate === today) {
                         TOKENS.push({ id: doc.id, ...data });
                     }
                 });
                 window.renderAttendance();
             });
 
-            // Load Settings (Prices and ALC Meals)
-            const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
-            onSnapshot(settingsRef, (snap) => {
-                snap.forEach(docSnap => {
+            // Reverted back to `system_settings` -> `canteen` 
+            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
+            onSnapshot(settingsRef, (docSnap) => {
+                if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (docSnap.id === 'meal_prices' || data.prices) {
-                        WEEKLY_PRICES = data.prices || data.dailyRates || WEEKLY_PRICES;
-                    }
-                    if (data.alcMealItems) {
-                        alcMealItems = data.alcMealItems;
-                    }
-                });
-                updateAlcDropdown();
+                    if (data.prices) WEEKLY_PRICES = data.prices;
+                    if (data.dailyRates) WEEKLY_PRICES = data.dailyRates;
+                    if (data.alcMealItems) alcMealItems = data.alcMealItems;
+                    updateAlcDropdown();
+                }
             });
         };
 
@@ -283,7 +280,7 @@
             const term = (document.getElementById('attendance-search')?.value || '').toLowerCase();
             
             // Authorization Check for "Reverse" Button
-            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role;
+            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role || 'USER';
             const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
 
             // Pre-process Data Maps
@@ -302,13 +299,13 @@
             // Update Site-Wise Distribution UI
             let siteHtml = '';
             Object.entries(siteCounts).sort((a,b) => b[1] - a[1]).forEach(([site, count]) => {
-                siteHtml += `<div class="bg-slate-800/80 border border-slate-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm">
+                siteHtml += `<div class="bg-slate-800/80 border border-slate-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm shrink-0">
                                 <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">${site}</span>
                                 <span class="bg-blue-500/20 text-blue-400 font-black px-2 py-0.5 rounded-lg text-sm">${count}</span>
                              </div>`;
             });
             if (totalScanned === 0) {
-                siteHtml = `<div class="text-xs font-bold text-slate-500 uppercase tracking-widest px-4 py-2 border border-slate-800 rounded-xl bg-slate-800/30"><i class="fas fa-info-circle mr-2"></i> No scans recorded yet today</div>`;
+                siteHtml = `<div class="text-xs font-bold text-slate-500 uppercase tracking-widest px-4 py-2 border border-slate-800 rounded-xl bg-slate-800/30 w-full"><i class="fas fa-info-circle mr-2"></i> No scans recorded yet today</div>`;
             }
             const siteContainer = document.getElementById('site-wise-container');
             if (siteContainer) siteContainer.innerHTML = siteHtml;
@@ -319,55 +316,55 @@
             let clearedCount = 0;
 
             let filteredPersonnel = Object.values(EMPLOYEES).filter(p => {
+                // Ensure we skip incomplete records
+                if (!p.name || !p.empId) return false;
                 totalActive++; 
-                const pId = p.id || p.empId || '';
-                const pName = p.name || '';
-                const pDept = p.dept || p.department || '';
-                return pName.toLowerCase().includes(term) || pId.toLowerCase().includes(term) || pDept.toLowerCase().includes(term);
+                const pId = p.empId.toLowerCase();
+                const pName = p.name.toLowerCase();
+                const pDept = (p.department || p.dept || '').toLowerCase();
+                return pName.includes(term) || pId.includes(term) || pDept.includes(term);
             });
 
             // Sorting: Unscanned (Waiting for Scan) appear at the top, then Alphabetically
             filteredPersonnel.sort((a, b) => {
-                const aId = a.id || a.empId;
-                const bId = b.id || b.empId;
-                const aMarked = !!markedLogsMap[aId];
-                const bMarked = !!markedLogsMap[bId];
+                const aMarked = !!markedLogsMap[a.empId];
+                const bMarked = !!markedLogsMap[b.empId];
                 if (aMarked === bMarked) return (a.name || '').localeCompare(b.name || '');
                 return aMarked ? 1 : -1; 
             });
 
             filteredPersonnel.forEach(p => {
-                const pId = p.id || p.empId;
-                const log = markedLogsMap[pId];
+                const log = markedLogsMap[p.empId];
                 const isMarked = !!log;
                 if (isMarked) clearedCount++;
 
                 const company = (p.companyName || p.company || '').toUpperCase();
                 const mealLabel = log?.mealName ? `<span class="text-[9px] uppercase font-bold text-indigo-400 tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded ml-2 border border-indigo-500/20">${log.mealName}</span>` : '';
+                const displayDept = p.department || p.dept || '-';
 
                 html += `
                     <div class="flex items-center justify-between p-4 rounded-2xl border ${isMarked ? 'bg-emerald-900/10 border-emerald-900/40' : 'bg-slate-800 border-slate-700'} hover:shadow-lg transition-all duration-300">
                         <div class="flex items-center gap-4">
-                            <div class="w-12 h-12 rounded-full ${isMarked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700 text-slate-300'} flex items-center justify-center font-bold text-lg shadow-inner">
+                            <div class="w-12 h-12 rounded-full shrink-0 ${isMarked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700 text-slate-300'} flex items-center justify-center font-bold text-lg shadow-inner">
                                 ${(p.name || 'U').charAt(0)}
                             </div>
                             <div>
                                 <h4 class="font-bold text-white text-base">${p.name}</h4>
                                 <div class="text-xs text-slate-400 flex items-center mt-1">
-                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 mr-2">${pId}</span>
-                                    <span>${p.dept || p.department || '-'}</span>
+                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 mr-2">${p.empId}</span>
+                                    <span>${displayDept}</span>
                                     ${mealLabel}
                                 </div>
                             </div>
                         </div>
-                        <div>
+                        <div class="shrink-0">
                             ${isMarked ? `
                                 <div class="flex items-center gap-2">
                                     <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-4 py-2.5 rounded-xl border border-emerald-800/50 shadow-sm">
                                         <i class="fas fa-check-circle"></i> <span class="hidden sm:inline">Cleared</span>
                                     </div>
                                     ${isAdmin ? `
-                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
+                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.mealRedeemed}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
                                         <i class="fas fa-arrow-rotate-left"></i>
                                     </button>` : ''}
                                 </div>
@@ -406,17 +403,14 @@
             
             showScanResultModal('VERIFYING...', 'Processing...', 'info');
 
-            // Find employee
-            let emp = EMPLOYEES[val];
-            if (!emp) {
-                emp = Object.values(EMPLOYEES).find(e => e.id === val || e.empId === val);
-            }
+            // Find employee directly via mapped values
+            let emp = Object.values(EMPLOYEES).find(e => e.empId === val || e.id === val);
 
             if (!emp) {
                 return showScanResultModal('ACCESS DENIED', 'Invalid Terminal ID', 'error');
             }
 
-            const pId = emp.id || emp.empId;
+            const pId = emp.empId;
             const company = (emp.companyName || emp.company || '').toUpperCase();
             const isAlcEmp = company.includes('ALC');
 
@@ -442,34 +436,39 @@
             }
 
             const todayStr = getTodayStr();
-            const alreadyMarked = TOKENS.find(t => t.empId === pId && t.issuedDate === todayStr);
+            const alreadyMarked = TOKENS.find(t => t.empId === pId && (t.date === todayStr || t.issuedDate === todayStr));
 
             if (alreadyMarked) {
                 return showScanResultModal('ALREADY ACTIVE', `${emp.name} has already accessed.`, 'warning');
             }
 
             try {
+                const docId = `${todayStr}_${pId}`;
                 const payload = {
-                    tokenString: `TKN-${Math.floor(Math.random()*10000)}`,
                     empId: pId,
                     empName: emp.name,
-                    dept: emp.dept || emp.department || '',
+                    dept: emp.department || emp.dept || '',
                     company: emp.companyName || emp.company || '',
                     account: emp.accountName || emp.account || '',
                     site: emp.site || '-',
+                    date: todayStr,
                     issuedDate: todayStr,
                     status: 'ISSUED',
+                    mealRedeemed: false,
+                    markedAt: serverTimestamp(),
                     issuedAt: serverTimestamp(),
-                    issuedBy: auth.currentUser.uid,
+                    markedBy: loggedInSysUser?.username || 'SYSTEM',
                     issuedBySysUser: loggedInSysUser?.username || 'SYSTEM',
                     costs: { total: appliedCost }
                 };
 
                 if (scanMode === 'ALC' && mealName) {
                     payload.mealName = mealName;
+                    payload.costApplied = appliedCost;
                 }
 
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), payload);
+                // Saving into attendance_logs as dictated by system schema requirements
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', docId), payload);
                 
                 // Reset ALC Scanner UI to require explicit selection for next person
                 if (scanMode === 'ALC') {
@@ -522,25 +521,46 @@
             }, 100);
         };
 
-        window.reviseAttendance = async (tokenId, empName, status) => {
+        // Webcam Handlers
+        window.startWebcamScanner = () => {
+            document.getElementById('webcam-modal').classList.remove('hidden');
+            if (!html5QrcodeScanner) html5QrcodeScanner = new Html5Qrcode("reader");
+            html5QrcodeScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => { 
+                    stopWebcamScanner(); 
+                    executeScan(decodedText.trim().toUpperCase()); 
+                },
+                () => {}
+            ).catch(err => { 
+                showToast("Camera access restricted or unavailable", "error"); 
+                document.getElementById('webcam-modal').classList.add('hidden'); 
+            });
+        };
+        
+        window.stopWebcamScanner = () => {
+            document.getElementById('webcam-modal').classList.add('hidden');
+            if(html5QrcodeScanner) html5QrcodeScanner.stop().catch(()=>{});
+        };
+
+        window.reviseAttendance = async (tokenId, empName, isRedeemed) => {
             if (!auth.currentUser || !loggedInSysUser) return;
             
             // Programmatic Guard
-            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role;
+            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role || 'USER';
             const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
             if (!isAdmin) {
                 window.showToast(`Unauthorized: Only Administrators can reverse scans.`, 'error');
                 return;
             }
 
-            if (status === 'CONSUMED') {
+            if (isRedeemed === 'true' || isRedeemed === true) {
                 window.showToast(`Cannot revise: ${empName} has already redeemed their meal at the counter.`, 'error');
                 return;
             }
 
             if(!confirm(`Revoke attendance entry for ${empName}?`)) return;
 
-            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tokens', tokenId);
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', tokenId);
             try {
                 await deleteDoc(ref);
                 window.showToast(`Attendance entry for ${empName} has been revoked.`, 'success');
@@ -551,12 +571,12 @@
         };
     </script>
 </head>
-<body class="bg-[#0B1120] text-slate-100 font-sans min-h-screen flex flex-col transition-colors duration-500">
+<body class="bg-[#0B1120] text-slate-100 font-sans h-[100dvh] flex flex-col overflow-hidden transition-colors duration-500">
 
     <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-2"></div>
 
     <!-- Navigation -->
-    <nav class="bg-[#0B1120] text-white shadow-xl sticky top-0 z-40 border-b border-slate-800">
+    <nav class="bg-[#0B1120] text-white shadow-xl sticky top-0 z-40 border-b border-slate-800 shrink-0">
         <div class="container mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center gap-4">
                 <button onclick="goToDashboard()" class="hover:bg-slate-800 p-2 rounded-lg text-slate-300 transition-colors bg-slate-800/50">
@@ -576,7 +596,7 @@
         </div>
     </nav>
 
-    <main class="flex-grow flex flex-col relative">
+    <main class="flex-1 min-h-0 flex flex-col relative">
         
         <!-- LOADING VIEW -->
         <div id="view-loading" class="fixed inset-0 z-[60] bg-[#0B1120] flex flex-col items-center justify-center transition-opacity duration-500">
@@ -603,9 +623,9 @@
         </div>
 
         <!-- MAIN ATTENDANCE VIEW -->
-        <div id="view-attendance" class="hidden container mx-auto px-6 py-8 animate-fade-in flex-grow flex flex-col max-h-screen">
+        <div id="view-attendance" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0 overflow-y-auto hide-scroll">
             
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 shrink-0 gap-4">
                 <div>
                     <h2 class="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
                         Terminal Node Alpha
@@ -615,7 +635,7 @@
             </div>
 
             <!-- SCANNER MODULE -->
-            <div class="mb-8 w-full max-w-5xl mx-auto">
+            <div class="mb-6 w-full max-w-5xl mx-auto shrink-0">
                 <!-- Sleek Tabs -->
                 <div class="flex justify-center mb-6">
                     <div class="bg-slate-800/80 p-1.5 rounded-xl flex gap-1 border border-slate-700 shadow-sm backdrop-blur-md">
@@ -629,7 +649,7 @@
                 </div>
 
                 <!-- Scanner Card -->
-                <div class="bg-[#0f172a]/60 backdrop-blur-sm rounded-[2rem] border border-slate-800 shadow-xl p-8 lg:p-12 flex flex-col items-center justify-center min-h-[220px]">
+                <div class="bg-[#0f172a]/60 backdrop-blur-sm rounded-[2rem] border border-slate-800 shadow-xl p-6 lg:p-10 flex flex-col items-center justify-center min-h-[220px]">
                     
                     <!-- ALC Selection Dropdown -->
                     <div id="alc-dropdown-container" class="w-full max-w-2xl mb-6 hidden animate-fade-in">
@@ -651,60 +671,65 @@
                             onkeydown="handleScannerInput(event)" oninput="handleAutoScan(event)" onblur="keepFocus('attendance-scanner')" autocomplete="off">
                     </div>
                     
-                    <p id="scanner-helper-text" class="text-xs text-slate-500 font-bold uppercase tracking-widest mt-6"><i class="fas fa-keyboard mr-1"></i> Awaiting scanner input...</p>
+                    <!-- Optical Camera Link Button -->
+                    <button onclick="startWebcamScanner()" class="mt-5 w-full max-w-sm flex items-center justify-center text-blue-400 hover:text-blue-300 font-bold text-sm bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 px-6 py-3 rounded-xl transition shadow-sm">
+                        <i class="fas fa-camera text-lg mr-2"></i> Launch Optical Scanner
+                    </button>
+                    
+                    <p id="scanner-helper-text" class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-4"><i class="fas fa-keyboard mr-1"></i> Awaiting scanner input...</p>
                 </div>
             </div>
 
             <!-- Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-slate-700 shadow-sm flex items-center justify-between">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
+                <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex items-center justify-between">
                     <div>
-                        <span class="text-slate-400 text-[11px] font-bold uppercase tracking-[0.15em] mb-1 block">Total Active Personnel</span>
-                        <span id="stat-total-emp" class="text-3xl font-black text-white">0</span>
+                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Total Active Personnel</span>
+                        <span id="stat-total-emp" class="text-2xl font-black text-white">0</span>
                     </div>
-                    <div class="w-12 h-12 bg-slate-700/50 rounded-full flex items-center justify-center text-slate-500"><i class="fas fa-users text-xl"></i></div>
+                    <div class="w-10 h-10 bg-slate-700/50 rounded-full flex items-center justify-center text-slate-500"><i class="fas fa-users text-lg"></i></div>
                 </div>
-                <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
-                    <div class="absolute -right-4 -top-4 w-20 h-20 bg-emerald-500/10 rounded-full pointer-events-none"></div>
+                <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full pointer-events-none"></div>
                     <div>
-                        <span class="text-emerald-400 text-[11px] font-bold uppercase tracking-[0.15em] mb-1 block">Cleared Today</span>
-                        <span id="stat-cleared-emp" class="text-3xl font-black text-emerald-400">0</span>
+                        <span class="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Cleared Today</span>
+                        <span id="stat-cleared-emp" class="text-2xl font-black text-emerald-400">0</span>
                     </div>
-                    <div class="w-12 h-12 bg-emerald-900/50 rounded-full flex items-center justify-center text-emerald-500"><i class="fas fa-clipboard-check text-xl"></i></div>
+                    <div class="w-10 h-10 bg-emerald-900/50 rounded-full flex items-center justify-center text-emerald-500"><i class="fas fa-clipboard-check text-lg"></i></div>
                 </div>
-                <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-slate-700 shadow-sm flex flex-col justify-center">
+                <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex flex-col justify-center">
                     <div class="flex justify-between items-center mb-2">
-                        <span class="text-slate-400 text-[11px] font-bold uppercase tracking-[0.15em]">Completion Metric</span>
+                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em]">Completion Metric</span>
                         <span id="attendance-progress-text" class="text-sm font-black text-white">0%</span>
                     </div>
-                    <div class="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden border border-slate-600">
-                        <div id="attendance-progress" class="bg-blue-500 h-3 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                    <div class="w-full bg-slate-700 rounded-full h-2.5 mt-1 overflow-hidden border border-slate-600">
+                        <div id="attendance-progress" class="bg-blue-500 h-2.5 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
                     </div>
                 </div>
             </div>
 
             <!-- Site-wise Scanned Counts -->
-            <div class="mb-6">
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3"><i class="fas fa-map-marker-alt mr-1"></i> Site-Wise Scan Distribution</h4>
-                <div id="site-wise-container" class="flex flex-wrap gap-3">
+            <div class="mb-6 shrink-0">
+                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"><i class="fas fa-map-marker-alt mr-1"></i> Site-Wise Scan Distribution</h4>
+                <div id="site-wise-container" class="flex flex-wrap gap-2">
                     <!-- Dynamic Site Counts Injected Here -->
                 </div>
             </div>
 
             <!-- List Area Header -->
-            <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
-                <h3 class="text-lg font-bold text-white"><i class="fas fa-list-ul mr-2 text-slate-400"></i> Active Security Ledger</h3>
+            <div class="flex flex-col md:flex-row justify-between items-center mb-3 shrink-0 gap-4">
+                <h3 class="text-base font-bold text-white"><i class="fas fa-list-ul mr-2 text-slate-400"></i> Active Security Ledger</h3>
                 <div class="w-full md:w-80">
-                    <div class="bg-slate-800 px-4 py-3 rounded-xl border border-slate-700 shadow-sm flex items-center gap-3 w-full transition-shadow focus-within:ring-2 focus-within:ring-blue-500/50">
+                    <div class="bg-slate-800 px-4 py-2.5 rounded-xl border border-slate-700 shadow-sm flex items-center gap-3 w-full transition-shadow focus-within:ring-2 focus-within:ring-blue-500/50">
                         <i class="fas fa-search text-slate-400"></i>
                         <input type="text" id="attendance-search" onkeyup="filterAttendance()" placeholder="Search Database..." class="bg-transparent border-none outline-none text-sm w-full text-white placeholder-slate-400 font-medium">
                     </div>
                 </div>
             </div>
 
-            <!-- List Area -->
-            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner flex-grow flex flex-col overflow-hidden p-2">
-                <div class="overflow-y-auto p-2 md:p-4 space-y-3 hide-scroll flex-grow" id="attendance-list">
+            <!-- Scrolling List Area -->
+            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner p-2 md:p-4 flex-col overflow-hidden">
+                <div class="space-y-3" id="attendance-list">
                     <div class="text-center py-20 text-slate-400">
                         <i class="fas fa-circle-notch fa-spin text-3xl mb-4 text-blue-500"></i>
                         <p class="font-medium tracking-wide">Syncing Personnel Database...</p>
@@ -725,6 +750,18 @@
                 <p id="res-msg" class="text-white font-bold text-xl leading-relaxed whitespace-pre-line"></p>
                 <button onclick="document.getElementById('result-modal').classList.add('hidden')" class="mt-8 w-full py-3.5 bg-slate-800 border border-slate-600 hover:bg-slate-700 text-white font-bold rounded-xl transition shadow-sm text-sm uppercase tracking-wider">Acknowledge</button>
             </div>
+        </div>
+    </div>
+
+    <!-- WEBCAM MODAL -->
+    <div id="webcam-modal" class="fixed inset-0 bg-[#0B1120]/95 hidden z-[80] flex flex-col items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-[#131B2B] rounded-3xl overflow-hidden w-full max-w-md relative shadow-2xl border border-slate-800">
+            <div class="bg-[#1F2937] text-white p-5 flex justify-between items-center border-b border-slate-700">
+                <span class="font-bold flex items-center text-sm uppercase tracking-wider"><i class="fas fa-video mr-3 text-blue-500"></i> Optical Feed Active</span>
+                <button onclick="stopWebcamScanner()" class="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500 rounded-lg p-2 transition"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="reader" class="w-full bg-[#0B1120] min-h-[350px]"></div>
+            <div class="p-5 text-center text-xs font-bold uppercase tracking-widest text-blue-400 bg-[#1F2937] border-t border-slate-700">Awaiting QR / Barcode Interface...</div>
         </div>
     </div>
 
