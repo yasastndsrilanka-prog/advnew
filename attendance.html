@@ -179,38 +179,41 @@
                 window.renderAttendance(); 
             });
 
-            // Reverted back to `personnel` based on user's actual database schema requirement
-            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
+            // 1. Fetch EMPLOYEES collection as per index (90).html path mapping
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
             onSnapshot(pRef, (snap) => {
                 EMPLOYEES = {};
                 snap.forEach(doc => { EMPLOYEES[doc.id] = { id: doc.id, empId: doc.id, ...doc.data() }; });
                 window.renderAttendance();
             });
 
-            // Reverted back to `attendance_logs` for reading today's tokens
-            const tRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
+            // 2. Fetch TOKENS collection as per index (90).html path mapping
+            const tRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
             onSnapshot(tRef, (snap) => {
                 const today = getTodayStr();
                 TOKENS = [];
                 snap.forEach(doc => {
                     const data = doc.data();
-                    if (data.date === today || data.issuedDate === today) {
+                    if (data.issuedDate === today || data.date === today) {
                         TOKENS.push({ id: doc.id, ...data });
                     }
                 });
                 window.renderAttendance();
             });
 
-            // Reverted back to `system_settings` -> `canteen` 
-            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
-            onSnapshot(settingsRef, (docSnap) => {
-                if (docSnap.exists()) {
+            // 3. Fetch SETTINGS collection to acquire meal_prices & alc configuration
+            const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
+            onSnapshot(settingsRef, (snap) => {
+                snap.forEach(docSnap => {
                     const data = docSnap.data();
-                    if (data.prices) WEEKLY_PRICES = data.prices;
-                    if (data.dailyRates) WEEKLY_PRICES = data.dailyRates;
-                    if (data.alcMealItems) alcMealItems = data.alcMealItems;
-                    updateAlcDropdown();
-                }
+                    if (docSnap.id === 'meal_prices' || data.prices) {
+                        WEEKLY_PRICES = data.prices || data.dailyRates || WEEKLY_PRICES;
+                    }
+                    if (data.alcMealItems) {
+                        alcMealItems = data.alcMealItems;
+                    }
+                });
+                updateAlcDropdown();
             });
         };
 
@@ -317,30 +320,30 @@
 
             let filteredPersonnel = Object.values(EMPLOYEES).filter(p => {
                 // Ensure we skip incomplete records
-                if (!p.name || !p.empId) return false;
+                if (!p.name || !p.id) return false;
                 totalActive++; 
-                const pId = p.empId.toLowerCase();
+                const pId = p.id.toLowerCase();
                 const pName = p.name.toLowerCase();
-                const pDept = (p.department || p.dept || '').toLowerCase();
+                const pDept = (p.dept || p.department || '').toLowerCase();
                 return pName.includes(term) || pId.includes(term) || pDept.includes(term);
             });
 
             // Sorting: Unscanned (Waiting for Scan) appear at the top, then Alphabetically
             filteredPersonnel.sort((a, b) => {
-                const aMarked = !!markedLogsMap[a.empId];
-                const bMarked = !!markedLogsMap[b.empId];
+                const aMarked = !!markedLogsMap[a.id];
+                const bMarked = !!markedLogsMap[b.id];
                 if (aMarked === bMarked) return (a.name || '').localeCompare(b.name || '');
                 return aMarked ? 1 : -1; 
             });
 
             filteredPersonnel.forEach(p => {
-                const log = markedLogsMap[p.empId];
+                const log = markedLogsMap[p.id];
                 const isMarked = !!log;
                 if (isMarked) clearedCount++;
 
                 const company = (p.companyName || p.company || '').toUpperCase();
                 const mealLabel = log?.mealName ? `<span class="text-[9px] uppercase font-bold text-indigo-400 tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded ml-2 border border-indigo-500/20">${log.mealName}</span>` : '';
-                const displayDept = p.department || p.dept || '-';
+                const displayDept = p.dept || p.department || '-';
 
                 html += `
                     <div class="flex items-center justify-between p-4 rounded-2xl border ${isMarked ? 'bg-emerald-900/10 border-emerald-900/40' : 'bg-slate-800 border-slate-700'} hover:shadow-lg transition-all duration-300">
@@ -351,7 +354,7 @@
                             <div>
                                 <h4 class="font-bold text-white text-base">${p.name}</h4>
                                 <div class="text-xs text-slate-400 flex items-center mt-1">
-                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 mr-2">${p.empId}</span>
+                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 mr-2">${p.id}</span>
                                     <span>${displayDept}</span>
                                     ${mealLabel}
                                 </div>
@@ -364,7 +367,7 @@
                                         <i class="fas fa-check-circle"></i> <span class="hidden sm:inline">Cleared</span>
                                     </div>
                                     ${isAdmin ? `
-                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.mealRedeemed}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
+                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
                                         <i class="fas fa-arrow-rotate-left"></i>
                                     </button>` : ''}
                                 </div>
@@ -404,13 +407,13 @@
             showScanResultModal('VERIFYING...', 'Processing...', 'info');
 
             // Find employee directly via mapped values
-            let emp = Object.values(EMPLOYEES).find(e => e.empId === val || e.id === val);
+            let emp = Object.values(EMPLOYEES).find(e => e.id === val || e.empId === val);
 
             if (!emp) {
                 return showScanResultModal('ACCESS DENIED', 'Invalid Terminal ID', 'error');
             }
 
-            const pId = emp.empId;
+            const pId = emp.id; // Using exact Employee ID mapping
             const company = (emp.companyName || emp.company || '').toUpperCase();
             const isAlcEmp = company.includes('ALC');
 
@@ -436,39 +439,35 @@
             }
 
             const todayStr = getTodayStr();
-            const alreadyMarked = TOKENS.find(t => t.empId === pId && (t.date === todayStr || t.issuedDate === todayStr));
+            const alreadyMarked = TOKENS.find(t => t.empId === pId && (t.issuedDate === todayStr || t.date === todayStr));
 
             if (alreadyMarked) {
                 return showScanResultModal('ALREADY ACTIVE', `${emp.name} has already accessed.`, 'warning');
             }
 
             try {
-                const docId = `${todayStr}_${pId}`;
+                // Matching exactly how the application constructs tokens based on index(90).html architecture
                 const payload = {
+                    tokenString: `TKN-${Math.floor(Math.random()*10000)}`,
                     empId: pId,
                     empName: emp.name,
-                    dept: emp.department || emp.dept || '',
+                    dept: emp.dept || emp.department || '',
                     company: emp.companyName || emp.company || '',
                     account: emp.accountName || emp.account || '',
                     site: emp.site || '-',
-                    date: todayStr,
                     issuedDate: todayStr,
                     status: 'ISSUED',
-                    mealRedeemed: false,
-                    markedAt: serverTimestamp(),
                     issuedAt: serverTimestamp(),
-                    markedBy: loggedInSysUser?.username || 'SYSTEM',
+                    issuedBy: auth.currentUser.uid,
                     issuedBySysUser: loggedInSysUser?.username || 'SYSTEM',
                     costs: { total: appliedCost }
                 };
 
                 if (scanMode === 'ALC' && mealName) {
                     payload.mealName = mealName;
-                    payload.costApplied = appliedCost;
                 }
 
-                // Saving into attendance_logs as dictated by system schema requirements
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', docId), payload);
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), payload);
                 
                 // Reset ALC Scanner UI to require explicit selection for next person
                 if (scanMode === 'ALC') {
@@ -521,7 +520,7 @@
             }, 100);
         };
 
-        // Webcam Handlers
+        // Webcam Handlers connected with execution scanning logic
         window.startWebcamScanner = () => {
             document.getElementById('webcam-modal').classList.remove('hidden');
             if (!html5QrcodeScanner) html5QrcodeScanner = new Html5Qrcode("reader");
@@ -542,10 +541,10 @@
             if(html5QrcodeScanner) html5QrcodeScanner.stop().catch(()=>{});
         };
 
-        window.reviseAttendance = async (tokenId, empName, isRedeemed) => {
+        window.reviseAttendance = async (tokenId, empName, status) => {
             if (!auth.currentUser || !loggedInSysUser) return;
             
-            // Programmatic Guard
+            // Programmatic Guard tied strictly to Tokens schema
             const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role || 'USER';
             const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
             if (!isAdmin) {
@@ -553,14 +552,14 @@
                 return;
             }
 
-            if (isRedeemed === 'true' || isRedeemed === true) {
+            if (status === 'CONSUMED') {
                 window.showToast(`Cannot revise: ${empName} has already redeemed their meal at the counter.`, 'error');
                 return;
             }
 
             if(!confirm(`Revoke attendance entry for ${empName}?`)) return;
 
-            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', tokenId);
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tokens', tokenId);
             try {
                 await deleteDoc(ref);
                 window.showToast(`Attendance entry for ${empName} has been revoked.`, 'success');
