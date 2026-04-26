@@ -225,7 +225,7 @@
             const btnStd = document.getElementById('btn-mode-std');
             const btnAlc = document.getElementById('btn-mode-alc');
             const dropdownContainer = document.getElementById('alc-dropdown-container');
-            const scannerContainer = document.getElementById('scanner-container');
+            const scannerWrapper = document.getElementById('scanner-wrapper');
             const input = document.getElementById('attendance-scanner');
             const icon = document.getElementById('scanner-input-icon');
             const helper = document.getElementById('scanner-helper-text');
@@ -235,7 +235,7 @@
                 btnAlc.className = "px-6 py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-slate-200 flex items-center gap-2";
                 
                 dropdownContainer.classList.add('hidden');
-                scannerContainer.classList.remove('hidden'); 
+                scannerWrapper.classList.remove('hidden'); 
                 
                 input.classList.remove('border-indigo-500/60', 'focus:border-indigo-500', 'focus:ring-indigo-500/20', 'shadow-[0_0_15px_rgba(99,102,241,0.15)]');
                 input.classList.add('border-blue-500/60', 'focus:border-blue-500', 'focus:ring-blue-500/20', 'shadow-[0_0_15px_rgba(59,130,246,0.15)]');
@@ -249,7 +249,7 @@
                 
                 dropdownContainer.classList.remove('hidden');
                 document.getElementById('alc-meal-select').value = ""; 
-                scannerContainer.classList.add('hidden'); 
+                scannerWrapper.classList.add('hidden'); 
                 
                 input.classList.remove('border-blue-500/60', 'focus:border-blue-500', 'focus:ring-blue-500/20', 'shadow-[0_0_15px_rgba(59,130,246,0.15)]');
                 input.classList.add('border-indigo-500/60', 'focus:border-indigo-500', 'focus:ring-indigo-500/20', 'shadow-[0_0_15px_rgba(99,102,241,0.15)]');
@@ -260,15 +260,15 @@
 
         window.handleAlcSelection = () => {
             const val = document.getElementById('alc-meal-select').value;
-            const scannerContainer = document.getElementById('scanner-container');
+            const scannerWrapper = document.getElementById('scanner-wrapper');
             const helper = document.getElementById('scanner-helper-text');
             
             if (val) {
-                scannerContainer.classList.remove('hidden');
+                scannerWrapper.classList.remove('hidden');
                 helper.innerHTML = '<i class="fas fa-check-circle mr-1 text-indigo-400"></i> Ready for ALC scan';
                 setTimeout(() => document.getElementById('attendance-scanner').focus(), 100);
             } else {
-                scannerContainer.classList.add('hidden');
+                scannerWrapper.classList.add('hidden');
                 helper.innerHTML = '<i class="fas fa-hand-pointer mr-1"></i> Select meal to activate scanner';
             }
         };
@@ -293,11 +293,10 @@
             });
 
             // Update Top Metrics UI
-            document.getElementById('stat-total-emp').innerText = totalWorkforce;
             document.getElementById('stat-cleared-emp').innerText = totalScanned;
             const percentage = totalWorkforce === 0 ? 0 : Math.round((totalScanned / totalWorkforce) * 100);
             document.getElementById('attendance-progress').style.width = `${Math.min(percentage, 100)}%`;
-            document.getElementById('attendance-progress-text').innerText = `${percentage}%`;
+            document.getElementById('attendance-progress-text').innerText = `${percentage}% (${totalScanned} / ${totalWorkforce})`;
 
             // Update Site-Wise Distribution UI
             let siteHtml = '';
@@ -456,7 +455,7 @@
                 // Reset ALC Scanner Dropdown
                 if (scanMode === 'ALC') {
                     document.getElementById('alc-meal-select').value = "";
-                    document.getElementById('scanner-container').classList.add('hidden');
+                    document.getElementById('scanner-wrapper').classList.add('hidden');
                     document.getElementById('scanner-helper-text').innerHTML = '<i class="fas fa-hand-pointer mr-1"></i> Ensure meal is selected before scanning';
                 }
 
@@ -496,8 +495,9 @@
                 
                 const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
                 const isDropdownFocused = activeTag === 'select';
+                const isContainerHidden = document.getElementById('scanner-wrapper') ? document.getElementById('scanner-wrapper').classList.contains('hidden') : false;
 
-                if (el && document.activeElement !== el && isAttendanceView && !isDropdownFocused) {
+                if (el && document.activeElement !== el && isAttendanceView && !isDropdownFocused && !isContainerHidden) {
                     el.focus();
                 }
             }, 100);
@@ -643,34 +643,30 @@
                         </div>
                     </div>
 
-                    <!-- Scan Input Field -->
-                    <div id="scanner-container" class="w-full relative max-w-3xl animate-fade-in">
-                        <div class="absolute inset-y-0 left-6 sm:left-10 flex items-center pointer-events-none">
-                            <i id="scanner-input-icon" class="fas fa-qrcode text-blue-500 text-xl md:text-2xl transition-colors"></i>
+                    <!-- Scanner Wrapper -->
+                    <div id="scanner-wrapper" class="w-full flex flex-col items-center animate-fade-in">
+                        <!-- Scan Input Field -->
+                        <div id="scanner-container" class="w-full relative max-w-3xl">
+                            <div class="absolute inset-y-0 left-6 sm:left-10 flex items-center pointer-events-none">
+                                <i id="scanner-input-icon" class="fas fa-qrcode text-blue-500 text-xl md:text-2xl transition-colors"></i>
+                            </div>
+                            <input type="password" id="attendance-scanner" inputmode="none" placeholder="SCAN PERSONNEL QR . . ." 
+                                class="w-full pl-16 sm:pl-20 pr-6 py-5 sm:py-6 border-2 border-blue-500/60 rounded-[1.5rem] bg-slate-900/50 focus:bg-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 font-mono text-center text-lg sm:text-2xl tracking-[0.15em] sm:tracking-[0.25em] outline-none transition scanner-input shadow-[0_0_15px_rgba(59,130,246,0.15)] text-white" 
+                                onkeydown="handleScannerInput(event)" oninput="handleAutoScan(event)" onblur="keepFocus('attendance-scanner')" autocomplete="off">
                         </div>
-                        <input type="password" id="attendance-scanner" inputmode="none" placeholder="SCAN PERSONNEL QR . . ." 
-                            class="w-full pl-16 sm:pl-20 pr-6 py-5 sm:py-6 border-2 border-blue-500/60 rounded-[1.5rem] bg-slate-900/50 focus:bg-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 font-mono text-center text-lg sm:text-2xl tracking-[0.15em] sm:tracking-[0.25em] outline-none transition scanner-input shadow-[0_0_15px_rgba(59,130,246,0.15)] text-white" 
-                            onkeydown="handleScannerInput(event)" oninput="handleAutoScan(event)" onblur="keepFocus('attendance-scanner')" autocomplete="off">
+                        
+                        <!-- Optical Camera Link Button -->
+                        <button onclick="startWebcamScanner()" class="mt-5 w-full max-w-sm flex items-center justify-center text-blue-400 hover:text-blue-300 font-bold text-sm bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 px-6 py-3 rounded-xl transition shadow-sm">
+                            <i class="fas fa-camera text-lg mr-2"></i> Launch Optical Scanner
+                        </button>
                     </div>
-                    
-                    <!-- Optical Camera Link Button -->
-                    <button onclick="startWebcamScanner()" class="mt-5 w-full max-w-sm flex items-center justify-center text-blue-400 hover:text-blue-300 font-bold text-sm bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 px-6 py-3 rounded-xl transition shadow-sm">
-                        <i class="fas fa-camera text-lg mr-2"></i> Launch Optical Scanner
-                    </button>
                     
                     <p id="scanner-helper-text" class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-4"><i class="fas fa-keyboard mr-1"></i> Awaiting scanner input...</p>
                 </div>
             </div>
 
             <!-- Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
-                <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Total Workforce</span>
-                        <span id="stat-total-emp" class="text-2xl font-black text-white">0</span>
-                    </div>
-                    <div class="w-10 h-10 bg-slate-700/50 rounded-full flex items-center justify-center text-slate-500"><i class="fas fa-users text-lg"></i></div>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 shrink-0">
                 <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
                     <div class="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full pointer-events-none"></div>
                     <div>
@@ -682,7 +678,7 @@
                 <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex flex-col justify-center">
                     <div class="flex justify-between items-center mb-2">
                         <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em]">Completion Metric</span>
-                        <span id="attendance-progress-text" class="text-sm font-black text-white">0%</span>
+                        <span id="attendance-progress-text" class="text-sm font-black text-white">0% (0 / 0)</span>
                     </div>
                     <div class="w-full bg-slate-700 rounded-full h-2.5 mt-1 overflow-hidden border border-slate-600">
                         <div id="attendance-progress" class="bg-blue-500 h-2.5 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
