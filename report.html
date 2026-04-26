@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Enterprise | Financial Matrix</title>
+    <title>Enterprise | Analytics Engine</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -35,93 +35,90 @@
             body > * { display: none !important; }
             #print-overlay {
                 display: block !important;
-                position: absolute;
-                top: 0; left: 0; width: 100%; min-height: 100vh;
-                background: white; z-index: 9999; padding: 20px; margin: 0;
+                position: fixed;
+                top: 0; left: 0; width: 100%; height: 100%;
+                background: white; z-index: 9999; padding: 0; margin: 0;
             }
-            .print-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            .print-table th, .print-table td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 12px; color: black; }
-            .print-table th { background-color: #f1f5f9; font-weight: bold; text-transform: uppercase; }
-            .print-header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
-            .print-stats { display: flex; justify-content: space-between; margin-bottom: 20px; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; }
-            .print-stat-item { text-align: center; color: black; }
-            .print-stat-label { font-size: 10px; text-transform: uppercase; font-weight: bold; color: #64748b; }
-            .print-stat-value { font-size: 18px; font-weight: 900; font-family: monospace; }
-            @page { size: auto; margin: 10mm; }
+            .print-mode-report { display: block !important; padding: 10mm; }
+            .report-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+            .report-table th, .report-table td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+            .report-table th { background-color: #f3f4f6 !important; font-weight: bold; color: #1e293b !important; }
+            .report-table td { color: #000 !important; }
+            @page { size: auto; margin: 5mm; }
         }
         #print-overlay { display: none; }
 
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
-
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
+        .animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-        
-        /* Date Input Styling */
-        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; opacity: 0.6; transition: 0.2s; }
-        input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
-
-        /* Custom Drawer Animations */
-        #filter-drawer-bg { transition: opacity 0.3s ease-in-out; }
-        #filter-drawer { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        body.drawer-open #filter-drawer { transform: translateX(0); }
-        body.drawer-open #filter-drawer-bg { opacity: 1; pointer-events: auto; }
-        body.drawer-closed #filter-drawer { transform: translateX(100%); }
-        body.drawer-closed #filter-drawer-bg { opacity: 0; pointer-events: none; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
     </style>
 
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ============================================================
-        //  FIREBASE CONFIGURATION
-        // ============================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAfKp8gWavPxo5EZafetpeADh7eeRHQQx0",
-            authDomain: "canteen-2d80d.firebaseapp.com",
-            projectId: "canteen-2d80d",
-            storageBucket: "canteen-2d80d.firebasestorage.app",
-            messagingSenderId: "835222412943",
-            appId: "1:835222412943:web:8db25547c45a1f0e1d5afa"
+        // Firebase Config
+        const appConfig = {
+            apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
+            authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+            projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
+            storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
+            messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+            appId: import.meta.env?.VITE_FIREBASE_APP_ID || ""
         };
-        
-        let appConfig = firebaseConfig;
-        if (typeof __firebase_config !== 'undefined') { 
-            try {
-                appConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
-            } catch (e) {
-                console.warn("Could not parse __firebase_config", e);
-            }
-        }
 
         const app = initializeApp(appConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        
-        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'canteen-os-live';
+        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'enterprise-dashboard-v1';
 
         // State
-        let ALL_LOGS = [];
-        let filteredLogs = [];
+        let personnelMap = {};
+        let attendanceLogs = [];
+        let dailyRates = { "Sunday": 0, "Monday": 0, "Tuesday": 0, "Wednesday": 0, "Thursday": 0, "Friday": 0, "Saturday": 0 };
+
         const SYS_SESSION_KEY = `ent_sys_session_${appId}`;
         let loggedInSysUser = null;
-        
-        const formatter = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', minimumFractionDigits: 2 });
 
         document.documentElement.classList.add('dark');
-        document.body.classList.add('drawer-closed');
 
+        const formatter = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
         function getTodayStr() { return new Date().toISOString().split('T')[0]; }
+
+        function getDayName(dateString) {
+            if (!dateString) return '';
+            const parts = dateString.split('-');
+            if (parts.length === 3) {
+                const date = new Date(parts[0], parts[1] - 1, parts[2]);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                return days[date.getDay()];
+            }
+            return '';
+        }
+
+        window.showToast = (message, type = 'success') => {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colors = type === 'success' ? 'bg-purple-500 border-purple-600' : type === 'warning' ? 'bg-amber-500 border-amber-600' : 'bg-red-500 border-red-600';
+            const icon = type === 'success' ? 'fa-check-circle' : type === 'warning' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle';
+            toast.className = `${colors} text-white px-4 py-3 rounded-xl shadow-lg border flex items-center gap-3 animate-fade-in text-sm font-bold mt-2`;
+            toast.innerHTML = `<i class="fas ${icon}"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
 
         const initAuth = async () => {
             try {
@@ -134,36 +131,22 @@
         };
 
         window.goToDashboard = () => {
-            window.location.href = 'index.html';
-        };
-
-        window.showToast = (message, type = 'success') => {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            const colors = type === 'success' ? 'bg-blue-600 border-blue-500' : type === 'warning' ? 'bg-orange-500 border-orange-400' : 'bg-red-500 border-red-600';
-            const icon = type === 'success' ? 'fa-check-circle' : type === 'warning' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle';
-            toast.className = `${colors} text-white px-5 py-3 rounded-xl shadow-lg border flex items-center gap-3 animate-fade-in text-sm font-bold mt-2`;
-            toast.innerHTML = `<i class="fas ${icon}"></i> <span>${message}</span>`;
-            container.appendChild(toast);
-            setTimeout(() => {
-                toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; toast.style.transition = 'all 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            try {
+                if (window.location.protocol === 'blob:') window.history.back();
+                else window.location.href = 'index.html';
+            } catch (e) { window.history.back(); }
         };
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 const sessionStr = localStorage.getItem(SYS_SESSION_KEY);
                 if (sessionStr || window.location.protocol === 'blob:') {
-                    loggedInSysUser = sessionStr ? JSON.parse(sessionStr) : { username: 'ADMIN' };
+                    loggedInSysUser = sessionStr ? JSON.parse(sessionStr) : { username: 'Admin' };
                     document.getElementById('view-loading').classList.add('hidden');
-                    document.getElementById('view-reports').classList.remove('hidden');
+                    document.getElementById('view-report').classList.remove('hidden');
                     
-                    // Set default filter range to current month
-                    const today = new Date();
-                    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-                    document.getElementById('filter-start-date').value = firstDay;
-                    document.getElementById('filter-end-date').value = getTodayStr();
+                    document.getElementById('rpt-start').value = getTodayStr();
+                    document.getElementById('rpt-end').value = getTodayStr();
                     
                     loadData();
                 } else {
@@ -176,458 +159,502 @@
         initAuth();
 
         const loadData = () => {
+            // Load Daily Matrix Rates
+            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
+            onSnapshot(settingsRef, (docSnap) => {
+                if (docSnap.exists() && docSnap.data().dailyRates) {
+                    dailyRates = docSnap.data().dailyRates;
+                }
+                updateAnalytics();
+            });
+
+            // Load Personnel
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
+            onSnapshot(pRef, (snap) => {
+                personnelMap = {};
+                snap.forEach(doc => personnelMap[doc.id] = doc.data());
+                updateAnalytics();
+            });
+
+            // Load Attendance Logs
             const aRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
             onSnapshot(aRef, (snap) => {
-                ALL_LOGS = [];
-                snap.forEach(doc => {
-                    const data = doc.data();
-                    // Only analyze successfully redeemed/consumed meals for Financial reports
-                    if (data.mealRedeemed === true || data.status === 'CONSUMED') {
-                        ALL_LOGS.push({ id: doc.id, ...data });
+                attendanceLogs = [];
+                snap.forEach(doc => attendanceLogs.push({ id: doc.id, ...doc.data() }));
+                updateAnalytics();
+            });
+        };
+
+        // ============================================================
+        //  ADVANCED TRANSACTIONS LOGIC (From Index.html)
+        // ============================================================
+        window.revokeMeal = async (logId) => {
+            if(confirm('Revoke this meal redemption? The employee will be able to redeem again today.')) {
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', logId), {
+                        mealRedeemed: false,
+                        mealName: null,
+                        costApplied: null,
+                        redeemedAt: null,
+                        redeemedBy: null
+                    });
+                    window.showToast('Meal successfully revoked.', 'warning');
+                } catch(e) { window.showToast('Failed to revoke meal.', 'error'); }
+            }
+        };
+
+        window.deleteLog = async (logId) => {
+            if(confirm('Completely delete this check-in record?')) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance_logs', logId));
+                    window.showToast('Record deleted permanently.', 'success');
+                } catch(e) { window.showToast('Failed to delete record.', 'error'); }
+            }
+        };
+
+        // ============================================================
+        //  ANALYTICS ENGINE
+        // ============================================================
+        function updateAnalytics() {
+            const todayStr = getTodayStr();
+            const currentMonthStr = todayStr.substring(0, 7); 
+
+            let totalCostToday = 0, issuedToday = 0, consumedToday = 0;
+            let totalCostMonth = 0, issuedMonth = 0, consumedMonth = 0;
+
+            const dailyStats = {};
+            const deptStats = {};
+            const acctStats = {};
+            const compStats = {};
+            const siteStats = {};
+            const mealStats = {}; // NEW: Track specific meals
+
+            for (let i=6; i>=0; i--) {
+                const d = new Date(); d.setDate(d.getDate() - i);
+                dailyStats[d.toISOString().split('T')[0]] = 0;
+            }
+
+            const tbody = document.getElementById('report-table-body');
+            if(tbody) tbody.innerHTML = '';
+
+            const sortedLogs = [...attendanceLogs].sort((a, b) => {
+                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
+                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                return tB - tA;
+            });
+
+            let tableCount = 0;
+
+            sortedLogs.forEach(log => {
+                const emp = personnelMap[log.empId] || Object.values(personnelMap).find(p => p.empId === log.empId) || {};
+                const isConsumed = log.mealRedeemed === true;
+                
+                // Advanced ALC/Standard Cost Resolution
+                let cost = 0;
+                let mealVariety = 'Standard Daily Meal';
+
+                if (isConsumed) {
+                    if (log.costApplied !== undefined) {
+                        cost = parseFloat(log.costApplied);
+                        mealVariety = log.mealName || 'Custom ALC Meal';
+                    } else {
+                        let rateForDay = 0;
+                        if (log.date) {
+                            const dayName = getDayName(log.date);
+                            rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                        }
+                        cost = rateForDay;
                     }
-                });
+                }
                 
-                populateFilterOptions();
-                applyFilters(); // Initial render
-            }, (err) => console.error("Logs sync err:", err));
-        };
+                // Monthly Stats
+                if (log.date && log.date.startsWith(currentMonthStr)) {
+                    issuedMonth++;
+                    if (isConsumed) {
+                        totalCostMonth += cost;
+                        consumedMonth++;
+                    }
+                }
 
-        // ============================================================
-        //  DRAWER & FILTER LOGIC
-        // ============================================================
-        window.toggleFilterDrawer = () => {
-            if (document.body.classList.contains('drawer-closed')) {
-                document.body.classList.remove('drawer-closed');
-                document.body.classList.add('drawer-open');
-            } else {
-                document.body.classList.remove('drawer-open');
-                document.body.classList.add('drawer-closed');
-            }
-        };
+                // Daily Stats & Live Feed
+                if(log.date === todayStr) {
+                    issuedToday++;
+                    if (isConsumed) {
+                        totalCostToday += cost;
+                        consumedToday++;
+                    }
+                    
+                    if(tbody && tableCount < 100) {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700/50 last:border-0 transition-colors animate-fade-in';
+                        
+                        const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending';
+                        const statusBadge = isConsumed 
+                            ? `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">REDEEMED</span>`
+                            : `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">CLEARED</span>`;
 
-        function populateFilterOptions() {
-            const companies = new Set();
-            const depts = new Set();
-            const accounts = new Set();
-            const meals = new Set();
+                        const actionBtn = isConsumed 
+                            ? `<button onclick="revokeMeal('${log.id}')" class="text-orange-400 hover:text-orange-600 font-bold px-2 py-1 rounded hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors" title="Revoke Meal"><i class="fas fa-undo-alt"></i></button>`
+                            : `<button onclick="deleteLog('${log.id}')" class="text-red-400 hover:text-red-600 font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors" title="Delete Check-in"><i class="fas fa-trash-alt"></i></button>`;
 
-            ALL_LOGS.forEach(log => {
-                if(log.company && log.company !== '-') companies.add(log.company);
-                if(log.dept && log.dept !== '-') depts.add(log.dept);
-                if(log.account && log.account !== '-') accounts.add(log.account);
-                
-                const mealName = (log.mealName && log.mealName.trim() !== '') ? log.mealName : 'Standard Meal';
-                meals.add(mealName);
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white flex flex-col">
+                                <span>${emp.name || 'Unknown'}</span>
+                                <span class="text-[10px] font-mono text-slate-400 mt-1">${log.empId}</span>
+                            </td>
+                            <td class="px-6 py-4 text-xs font-bold text-slate-600 dark:text-slate-400">${timeStr}</td>
+                            <td class="px-6 py-4 text-xs font-bold text-indigo-600 dark:text-indigo-400">${isConsumed ? mealVariety : '-'}</td>
+                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">${emp.department || emp.dept || '-'}</td>
+                            <td class="px-6 py-4 text-sm">${statusBadge}</td>
+                            <td class="px-6 py-4 text-sm font-bold text-slate-800 dark:text-white text-right">${isConsumed ? formatter.format(cost) : '-'}</td>
+                            <td class="px-6 py-4 text-sm text-center">${actionBtn}</td>
+                        `;
+                        tbody.appendChild(tr);
+                        tableCount++;
+                    }
+                }
+
+                // Cost Distributions (Consumed Only)
+                if (isConsumed) {
+                    if (dailyStats.hasOwnProperty(log.date)) dailyStats[log.date] += cost;
+
+                    const dept = emp.department || emp.dept || 'Unknown';
+                    const acct = emp.accountName || 'CTE';
+                    const comp = emp.companyName || 'Internal';
+                    const site = emp.site || 'Unknown';
+
+                    deptStats[dept] = (deptStats[dept] || 0) + cost;
+                    acctStats[acct] = (acctStats[acct] || 0) + cost;
+                    compStats[comp] = (compStats[comp] || 0) + cost;
+                    siteStats[site] = (siteStats[site] || 0) + cost;
+                    mealStats[mealVariety] = (mealStats[mealVariety] || 0) + cost;
+                }
             });
 
-            const renderOptions = (setId, dataSet) => {
-                const el = document.getElementById(setId);
-                // Keep the "ALL" option
-                el.innerHTML = '<option value="ALL">ALL SEGMENTS</option>';
-                Array.from(dataSet).sort().forEach(item => {
-                    el.innerHTML += `<option value="${item}">${item}</option>`;
-                });
-            };
+            // Update DOM
+            document.getElementById('rpt-total-spend').textContent = formatter.format(totalCostToday);
+            document.getElementById('rpt-tokens-issued-today').textContent = issuedToday;
+            document.getElementById('rpt-tokens-consumed-today').textContent = consumedToday;
+            
+            document.getElementById('rpt-month-spend').textContent = formatter.format(totalCostMonth);
+            document.getElementById('rpt-month-issued').textContent = issuedMonth;
+            document.getElementById('rpt-month-consumed').textContent = consumedMonth;
 
-            renderOptions('filter-company', companies);
-            renderOptions('filter-dept', depts);
-            renderOptions('filter-account', accounts);
+            renderDistributionChart('rpt-chart-dept', deptStats, true);
+            renderDistributionChart('rpt-chart-acct', acctStats, true);
+            renderDistributionChart('rpt-chart-comp', compStats, true);
+            renderDistributionChart('rpt-chart-site', siteStats, true);
+            renderDistributionChart('rpt-chart-meal', mealStats, true);
 
-            // Render Meal Checkboxes dynamically
-            const mealContainer = document.getElementById('filter-meals-container');
-            mealContainer.innerHTML = '';
-            Array.from(meals).sort().forEach(meal => {
-                mealContainer.innerHTML += `
-                    <label class="flex items-center p-3 border border-slate-700 rounded-xl cursor-pointer hover:bg-slate-800 transition-colors group">
-                        <div class="relative flex items-center justify-center mr-3">
-                            <input type="checkbox" value="${meal}" class="meal-checkbox peer sr-only" checked>
-                            <div class="w-5 h-5 bg-[#0B1120] border border-slate-600 rounded flex items-center justify-center peer-checked:bg-blue-600 peer-checked:border-blue-600 transition-colors">
-                                <i class="fas fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100"></i>
-                            </div>
+            // 7-Day Trend
+            const trendContainer = document.getElementById('rpt-chart-trend');
+            trendContainer.innerHTML = '';
+            const maxDaily = Math.max(...Object.values(dailyStats), 10);
+            Object.keys(dailyStats).forEach(date => {
+                const val = dailyStats[date];
+                const hPercent = (val / maxDaily) * 100;
+                trendContainer.innerHTML += `
+                    <div class="flex flex-col items-center flex-1">
+                        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-t-lg relative group h-32 flex items-end justify-center">
+                            <div class="w-3/4 bg-purple-500 rounded-t-md transition-all duration-700 hover:bg-purple-400 shadow-md" style="height: ${Math.max(hPercent, 2)}%"></div>
+                            <div class="absolute -top-10 bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-lg pointer-events-none">${formatter.format(val)}</div>
                         </div>
-                        <span class="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">${meal}</span>
-                    </label>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-bold uppercase tracking-wider">${new Date(date).toLocaleDateString('en-US', {weekday: 'short'})}</div>
+                    </div>
                 `;
             });
         }
 
-        window.applyFilters = () => {
-            const startDate = document.getElementById('filter-start-date').value;
-            const endDate = document.getElementById('filter-end-date').value;
-            const company = document.getElementById('filter-company').value;
-            const dept = document.getElementById('filter-dept').value;
-            const account = document.getElementById('filter-account').value;
-            
-            // Collect checked meals
-            const mealCbs = document.querySelectorAll('.meal-checkbox:checked');
-            const checkedMeals = Array.from(mealCbs).map(cb => cb.value);
-
-            filteredLogs = ALL_LOGS.filter(log => {
-                const lDate = log.date || log.issuedDate;
-                const lComp = log.company || '';
-                const lDept = log.dept || '';
-                const lAcct = log.account || '';
-                const lMeal = (log.mealName && log.mealName.trim() !== '') ? log.mealName : 'Standard Meal';
-
-                if (startDate && lDate < startDate) return false;
-                if (endDate && lDate > endDate) return false;
-                if (company !== 'ALL' && lComp !== company) return false;
-                if (dept !== 'ALL' && lDept !== dept) return false;
-                if (account !== 'ALL' && lAcct !== account) return false;
-                
-                if (!checkedMeals.includes(lMeal)) return false;
-
-                return true;
-            });
-
-            // Sort: Newest First
-            filteredLogs.sort((a, b) => {
-                const dA = a.redeemedAt?.seconds || 0;
-                const dB = b.redeemedAt?.seconds || 0;
-                return dB - dA;
-            });
-
-            updateMetrics();
-            renderTable();
-            window.toggleFilterDrawer(); // Close drawer after applying
-        };
-
-        window.resetFilters = () => {
-            const today = new Date();
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-            
-            document.getElementById('filter-start-date').value = firstDay;
-            document.getElementById('filter-end-date').value = getTodayStr();
-            document.getElementById('filter-company').value = "ALL";
-            document.getElementById('filter-dept').value = "ALL";
-            document.getElementById('filter-account').value = "ALL";
-            
-            document.querySelectorAll('.meal-checkbox').forEach(cb => cb.checked = true);
-            
-            applyFilters();
-        };
-
-        function updateMetrics() {
-            let totalMeals = filteredLogs.length;
-            let standardCost = 0;
-            let alcCost = 0;
-
-            filteredLogs.forEach(log => {
-                let cost = log.costApplied !== undefined ? log.costApplied : (log.costs?.total || 0);
-                cost = parseFloat(cost) || 0;
-
-                if (log.mealName && log.mealName.trim() !== '') {
-                    alcCost += cost;
-                } else {
-                    standardCost += cost;
-                }
-            });
-
-            let combinedCost = standardCost + alcCost;
-
-            document.getElementById('stat-total-meals').textContent = totalMeals;
-            document.getElementById('stat-std-cost').textContent = formatter.format(standardCost);
-            document.getElementById('stat-alc-cost').textContent = formatter.format(alcCost);
-            document.getElementById('stat-combined-cost').textContent = formatter.format(combinedCost);
-        }
-
-        function renderTable() {
-            const container = document.getElementById('audit-ledger-list');
+        function renderDistributionChart(containerId, stats, showAmount = false) {
+            const container = document.getElementById(containerId);
+            if (!container) return; 
             container.innerHTML = '';
+            
+            const total = Object.values(stats).reduce((a,b)=>a+b, 0) || 1;
+            const sortedKeys = Object.keys(stats).sort((a,b) => stats[b] - stats[a]).slice(0, 5);
 
-            if (filteredLogs.length === 0) { 
-                container.innerHTML = `
-                    <tr><td colspan="7" class="px-6 py-16 text-center text-slate-500 font-medium">
-                        <i class="fas fa-folder-open text-4xl mb-4 opacity-30 block"></i> No ledger entries match the selected parameters.
-                    </td></tr>`; 
-                return; 
+            if (sortedKeys.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-500 italic py-4">No financial data available.</div>';
+                return;
             }
 
-            filteredLogs.forEach(log => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-slate-800/80 border-b border-slate-800 transition-colors group';
+            sortedKeys.forEach(key => {
+                const val = stats[key];
+                const percent = (val / total) * 100;
+                const label = showAmount ? `${key} (${formatter.format(val)})` : key;
                 
-                const logDate = log.date || log.issuedDate || '-';
-                const timeStr = log.redeemedAt ? new Date(log.redeemedAt.seconds*1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-';
-                
-                const empId = log.empId || '-';
-                const empName = log.empName || 'Unknown';
-                const dept = log.dept || '-';
-                const company = log.company || '-';
-                const account = log.account || '-';
-                
-                let cost = log.costApplied !== undefined ? log.costApplied : (log.costs?.total || 0);
-                cost = parseFloat(cost) || 0;
-
-                let mealTagHtml = '';
-                if (log.mealName && log.mealName.trim() !== '') {
-                    mealTagHtml = `<span class="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest whitespace-nowrap">${log.mealName}</span>`;
-                } else {
-                    mealTagHtml = `<span class="bg-slate-700/50 text-slate-300 border border-slate-600 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest whitespace-nowrap">Standard Meal</span>`;
-                }
-
-                tr.innerHTML = `
-                    <td class="px-5 py-4 whitespace-nowrap">
-                        <div class="text-sm font-bold text-white mb-0.5">${logDate}</div>
-                        <div class="text-[10px] text-slate-500 font-mono uppercase tracking-widest"><i class="far fa-clock"></i> ${timeStr}</div>
-                    </td>
-                    <td class="px-5 py-4 text-sm font-bold text-slate-300 font-mono tracking-wider">${empId}</td>
-                    <td class="px-5 py-4">
-                        <div class="text-sm font-bold text-blue-400 mb-0.5">${empName}</div>
-                        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">${account} • ${company}</div>
-                    </td>
-                    <td class="px-5 py-4 text-sm text-slate-300 font-medium">${dept}</td>
-                    <td class="px-5 py-4">${mealTagHtml}</td>
-                    <td class="px-5 py-4 text-right">
-                        <span class="font-mono font-black text-white text-base">${formatter.format(cost)}</span>
-                    </td>
+                container.innerHTML += `
+                    <div class="mb-4">
+                        <div class="flex justify-between text-xs mb-1.5">
+                            <span class="font-bold text-slate-700 dark:text-slate-300 truncate w-2/3" title="${key}">${label}</span>
+                            <span class="text-slate-500 dark:text-slate-400 font-medium">${Math.round(percent)}%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
+                            <div class="bg-purple-500 h-2 rounded-full" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
                 `;
-                container.appendChild(tr);
             });
         }
 
         // ============================================================
-        //  EXPORT CAPABILITIES
+        //  REPORTS & EXPORTS (Now ALC Aware)
         // ============================================================
-        window.exportCSV = () => {
-            if(filteredLogs.length === 0) return window.showToast('No data to export.', 'warning');
-            
-            let csvContent = "data:text/csv;charset=utf-8,";
-            // Headers
-            csvContent += "Date,Time,Emp ID,Name,Company,Department,Account,Meal Category,Cost Applied\n";
-            
-            filteredLogs.forEach(log => {
-                const logDate = log.date || log.issuedDate || '-';
-                const timeStr = log.redeemedAt ? new Date(log.redeemedAt.seconds*1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-';
-                const mealType = log.mealName || 'Standard Meal';
-                let cost = log.costApplied !== undefined ? log.costApplied : (log.costs?.total || 0);
-                
-                // Quote strings to avoid comma injection issues
-                const row = [
-                    logDate, 
-                    timeStr, 
-                    log.empId, 
-                    `"${log.empName || ''}"`, 
-                    `"${log.company || ''}"`, 
-                    `"${log.dept || ''}"`, 
-                    `"${log.account || ''}"`, 
-                    `"${mealType}"`, 
-                    cost
-                ].join(',');
-                
-                csvContent += row + "\n";
-            });
-            
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `Financial_Extract_${getTodayStr()}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            window.showToast('CSV generated successfully.', 'success');
-        };
-
         window.printReport = () => {
-            if (filteredLogs.length === 0) return window.showToast('No data to print.', 'warning');
-            
-            const printOverlay = document.getElementById('print-overlay');
-            const now = new Date().toLocaleString();
-            
-            const startVal = document.getElementById('filter-start-date').value;
-            const endVal = document.getElementById('filter-end-date').value;
-            const dateLabel = `Audit Period: ${startVal} to ${endVal}`;
-
-            let standardCost = 0;
-            let alcCost = 0;
-            let rowsHtml = '';
-
-            filteredLogs.forEach(log => {
-                const logDate = log.date || log.issuedDate || '-';
-                let cost = log.costApplied !== undefined ? log.costApplied : (log.costs?.total || 0);
-                cost = parseFloat(cost) || 0;
-                const mealType = (log.mealName && log.mealName.trim() !== '') ? log.mealName : 'Standard Menu';
-
-                if (log.mealName && log.mealName.trim() !== '') alcCost += cost;
-                else standardCost += cost;
-
-                rowsHtml += `
-                    <tr>
-                        <td>${logDate}</td>
-                        <td>${log.empId}</td>
-                        <td>${log.empName}</td>
-                        <td>${mealType}</td>
-                        <td style="text-align: right;">${formatter.format(cost)}</td>
-                    </tr>
-                `;
-            });
-
-            printOverlay.innerHTML = `
-                <div class="print-header">
-                    <h1 style="margin: 0; font-family: sans-serif; color: black;">Financial Matrix Audit</h1>
-                    <p style="margin: 5px 0 0 0; font-family: monospace; color: #64748b;">${dateLabel}</p>
-                    <p style="margin: 5px 0 0 0; font-size: 10px; color: #94a3b8;">Generated On: ${now}</p>
-                </div>
-                
-                <div class="print-stats">
-                    <div class="print-stat-item">
-                        <div class="print-stat-label">Total Consumption</div>
-                        <div class="print-stat-value">${filteredLogs.length}</div>
-                    </div>
-                    <div class="print-stat-item">
-                        <div class="print-stat-label">Standard Liability</div>
-                        <div class="print-stat-value">${formatter.format(standardCost)}</div>
-                    </div>
-                    <div class="print-stat-item">
-                        <div class="print-stat-label">ALC Liability</div>
-                        <div class="print-stat-value">${formatter.format(alcCost)}</div>
-                    </div>
-                    <div class="print-stat-item">
-                        <div class="print-stat-label">Gross Liability</div>
-                        <div class="print-stat-value">${formatter.format(standardCost + alcCost)}</div>
-                    </div>
-                </div>
-
-                <table class="print-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Terminal ID</th>
-                            <th>Identity Profile</th>
-                            <th>Meal Designation</th>
-                            <th style="text-align: right;">Applied Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rowsHtml}
-                    </tbody>
-                </table>
-            `;
-            
+            const content = document.getElementById('report-preview-content').innerHTML;
+            const overlay = document.getElementById('print-overlay');
+            overlay.innerHTML = content;
+            overlay.className = 'print-mode-report'; 
             window.print();
         };
 
+        window.generateReportPreview = () => {
+            const startDate = document.getElementById('rpt-start').value;
+            const endDate = document.getElementById('rpt-end').value;
+            const filterType = document.getElementById('rpt-filter-type').value;
+
+            if(!startDate || !endDate) return window.showToast('Select date range', 'error');
+
+            const modal = document.getElementById('report-preview-modal');
+            const content = document.getElementById('report-preview-content');
+            modal.classList.remove('hidden');
+            
+            let rows = "";
+            let count = 0;
+            let totalCost = 0;
+
+            const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+            filteredLogs.sort((a, b) => {
+                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
+                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                return tA - tB;
+            });
+
+            filteredLogs.forEach(log => {
+                const emp = personnelMap[log.empId] || Object.values(personnelMap).find(p => p.empId === log.empId) || {};
+                const isConsumed = log.mealRedeemed === true;
+                
+                let cost = 0;
+                let mealVariety = 'Standard';
+                if (isConsumed) {
+                    if (log.costApplied !== undefined) {
+                        cost = parseFloat(log.costApplied);
+                        mealVariety = log.mealName || 'Custom ALC Meal';
+                    } else {
+                        let rateForDay = 0;
+                        if (log.date) rateForDay = parseFloat(dailyRates[getDayName(log.date)]) || 0;
+                        cost = rateForDay;
+                    }
+                }
+                
+                const dept = emp.department || emp.dept || '';
+                const acct = emp.accountName || 'CTE';
+                const comp = emp.companyName || '';
+                const site = emp.site || '';
+
+                if (filterType === 'DEPT' && !dept) return; 
+                if (filterType === 'ACCT' && !acct) return;
+                if (filterType === 'COMP' && !comp) return;
+                if (filterType === 'SITE' && !site) return;
+                if (filterType === 'MEAL' && !isConsumed) return;
+                if (filterType === 'CONSUMED_ONLY' && !isConsumed) return;
+                
+                let groupVal = '';
+                if(filterType === 'DEPT') groupVal = dept;
+                else if(filterType === 'ACCT') groupVal = acct;
+                else if(filterType === 'COMP') groupVal = comp;
+                else if(filterType === 'SITE') groupVal = site;
+                else if(filterType === 'MEAL') groupVal = mealVariety;
+
+                const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
+
+                rows += `
+                    <tr>
+                        <td>${log.date} ${timeStr}</td>
+                        <td>${emp.name || 'Unknown'}</td>
+                        <td>${log.empId}</td>
+                        <td style="font-weight:bold; color:#4f46e5;">${isConsumed ? mealVariety : '-'}</td>
+                        <td>${dept}</td>
+                        <td>${statusStr}</td>
+                        ${filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY' ? `<td style="font-weight:bold; color:#4f46e5;">${groupVal || '-'}</td>` : ''}
+                        <td style="text-align:right">${formatter.format(cost)}</td>
+                    </tr>
+                `;
+                totalCost += cost;
+                count++;
+            });
+
+            if(count === 0) {
+                content.innerHTML = '<div style="text-align:center; padding: 40px; color: #64748b; font-weight: bold;">No records found for the selected criteria.</div>';
+                return;
+            }
+
+            const extraHeader = (filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY') ? `<th>${filterType}</th>` : '';
+            const colSpanCount = (filterType !== 'ALL' && filterType !== 'CONSUMED_ONLY') ? 7 : 6;
+
+            content.innerHTML = `
+                <div class="print-mode-report">
+                    <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end;">
+                        <div>
+                            <h1 style="font-size: 24px; font-weight: bold; margin: 0; text-transform: uppercase;">Enterprise Audit Report</h1>
+                            <div style="font-size: 14px; margin-top: 5px; color: #475569;">Filter Applied: ${filterType} | Period: ${startDate} to ${endDate}</div>
+                        </div>
+                        <div style="text-align: right; font-size: 12px; color: #475569;">
+                            <div>Generated: ${new Date().toLocaleString()}</div>
+                            <div>System Node: ${loggedInSysUser?.username || 'SYSTEM'}</div>
+                        </div>
+                    </div>
+                    
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Date/Time</th>
+                                <th>Employee Name</th>
+                                <th>Terminal ID</th>
+                                <th>Meal Variety</th>
+                                <th>Department</th>
+                                <th>Status</th>
+                                ${extraHeader}
+                                <th style="text-align:right">Cost Liability</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot>
+                            <tr style="background-color: #f8fafc;">
+                                <td colspan="${colSpanCount}" style="text-align:right; padding: 12px; font-weight: bold;">TOTAL EXPENDITURE:</td>
+                                <td style="text-align:right; padding: 12px; font-weight: bold; font-size: 1.1em; color: #000 !important;">${formatter.format(totalCost)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <div style="margin-top: 40px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
+                        *** CONFIDENTIAL ENTERPRISE SYSTEM RECORD ***
+                    </div>
+                </div>
+            `;
+        };
+
+        window.generateCSV = () => {
+            const startDate = document.getElementById('rpt-start').value;
+            const endDate = document.getElementById('rpt-end').value;
+            const filterType = document.getElementById('rpt-filter-type').value; 
+
+            if(!startDate || !endDate) return window.showToast('Select date range', 'error');
+
+            const btn = document.getElementById('rpt-gen-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Extracting...';
+            btn.disabled = true;
+
+            try {
+                let csvHeaders = "Date,Time,Emp Name,Emp ID,Meal Variety,Department,Site,Account,Company,Status,Cost Applied,Cleared By,Redeemed By\r\n";
+                let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvHeaders;
+                let count = 0;
+
+                const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+
+                filteredLogs.forEach(log => {
+                    const emp = personnelMap[log.empId] || Object.values(personnelMap).find(p => p.empId === log.empId) || {};
+                    const isConsumed = log.mealRedeemed === true;
+                    
+                    if (filterType === 'CONSUMED_ONLY' && !isConsumed) return;
+
+                    let cost = 0;
+                    let mealVariety = 'Standard';
+                    if (isConsumed) {
+                        if (log.costApplied !== undefined) {
+                            cost = parseFloat(log.costApplied);
+                            mealVariety = log.mealName || 'Custom ALC Meal';
+                        } else {
+                            let rateForDay = 0;
+                            if (log.date) rateForDay = parseFloat(dailyRates[getDayName(log.date)]) || 0;
+                            cost = rateForDay;
+                        }
+                    }
+
+                    const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                    const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
+
+                    const row = [
+                        `"${log.date}"`, 
+                        `"${timeStr}"`, 
+                        `"${emp.name || ''}"`, 
+                        `"${log.empId}"`,
+                        `"${isConsumed ? mealVariety : '-'}"`,
+                        `"${emp.department || emp.dept || ''}"`, 
+                        `"${emp.site || ''}"`, 
+                        `"${emp.accountName || 'CTE'}"`, 
+                        `"${emp.companyName || ''}"`, 
+                        `"${statusStr}"`, 
+                        cost, 
+                        `"${log.markedBy || ''}"`, 
+                        `"${log.redeemedBy || ''}"`
+                    ];
+
+                    csvContent += row.join(",") + "\r\n";
+                    count++;
+                });
+
+                if (count === 0) {
+                    window.showToast('No records found for extraction.', 'error');
+                } else {
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", encodedUri);
+                    link.setAttribute("download", `Enterprise_Analytics_${filterType}_${startDate}_to_${endDate}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.showToast(`Data Exported (${count} rows)`, 'success');
+                }
+            } catch(e) { 
+                console.error("CSV Error:", e); 
+                window.showToast('Data extraction failed', 'error'); 
+            } finally { 
+                btn.innerHTML = originalText; 
+                btn.disabled = false; 
+            }
+        };
     </script>
 </head>
-<body class="bg-[#0B1120] text-slate-100 font-sans h-[100dvh] flex flex-col overflow-hidden transition-colors duration-500">
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans min-h-screen flex flex-col transition-colors duration-500">
 
-    <!-- PRINT OVERLAY CONTAINER -->
+    <!-- PRINT OVERLAY -->
     <div id="print-overlay"></div>
-    <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 pointer-events-none"></div>
-
-    <!-- FILTER DRAWER BACKGROUND (DIMMER) -->
-    <div id="filter-drawer-bg" onclick="toggleFilterDrawer()" class="fixed inset-0 bg-[#0B1120]/80 backdrop-blur-sm z-[80] pointer-events-none opacity-0"></div>
-
-    <!-- SLIDE-OVER FILTER DRAWER -->
-    <div id="filter-drawer" class="fixed right-0 top-0 h-full w-full sm:w-[400px] bg-[#131B2B] border-l border-slate-800 shadow-2xl z-[90] flex flex-col transform translate-x-full">
-        <!-- Drawer Header -->
-        <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-[#0B1120]">
-            <h3 class="text-lg font-black text-white uppercase tracking-wider flex items-center gap-3">
-                <i class="fas fa-sliders-h text-blue-500"></i> Filter Parameters
-            </h3>
-            <button onclick="toggleFilterDrawer()" class="text-slate-400 hover:text-white transition w-8 h-8 rounded-full hover:bg-slate-800 flex items-center justify-center">
-                <i class="fas fa-times text-lg"></i>
-            </button>
-        </div>
-
-        <!-- Drawer Body -->
-        <div class="flex-1 overflow-y-auto p-6 space-y-8 hide-scroll">
-            
-            <!-- Date Range -->
-            <div>
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-slate-800 pb-2">Data Range Extraction</h4>
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-300 mb-1.5">Start Boundary</label>
-                        <input type="date" id="filter-start-date" class="w-full bg-[#0B1120] border border-slate-700 rounded-xl px-4 py-3 text-white font-mono text-sm focus:border-blue-500 outline-none transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-300 mb-1.5">End Boundary</label>
-                        <input type="date" id="filter-end-date" class="w-full bg-[#0B1120] border border-slate-700 rounded-xl px-4 py-3 text-white font-mono text-sm focus:border-blue-500 outline-none transition">
-                    </div>
-                </div>
-            </div>
-
-            <!-- Segment Dropdowns -->
-            <div>
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-slate-800 pb-2">Data Segments</h4>
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-300 mb-1.5">Origin Company</label>
-                        <select id="filter-company" class="w-full bg-[#0B1120] border border-slate-700 rounded-xl px-4 py-3 text-white font-bold text-sm focus:border-blue-500 outline-none transition appearance-none cursor-pointer">
-                            <option value="ALL">ALL SEGMENTS</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-300 mb-1.5">Department</label>
-                        <select id="filter-dept" class="w-full bg-[#0B1120] border border-slate-700 rounded-xl px-4 py-3 text-white font-bold text-sm focus:border-blue-500 outline-none transition appearance-none cursor-pointer">
-                            <option value="ALL">ALL SEGMENTS</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-300 mb-1.5">Account Code</label>
-                        <select id="filter-account" class="w-full bg-[#0B1120] border border-slate-700 rounded-xl px-4 py-3 text-white font-bold text-sm focus:border-blue-500 outline-none transition appearance-none cursor-pointer">
-                            <option value="ALL">ALL SEGMENTS</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Meal Checkboxes -->
-            <div>
-                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-slate-800 pb-2">Meal Segment Toggles</h4>
-                <div id="filter-meals-container" class="space-y-2">
-                    <!-- Populated dynamically -->
-                </div>
-            </div>
-            
-        </div>
-
-        <!-- Drawer Footer -->
-        <div class="p-6 bg-[#0B1120] border-t border-slate-800 flex gap-3">
-            <button onclick="resetFilters()" class="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3.5 rounded-xl transition text-xs uppercase tracking-wider">Reset</button>
-            <button onclick="applyFilters()" class="w-2/3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] transition text-xs uppercase tracking-wider">Apply Extract</button>
-        </div>
-    </div>
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-2"></div>
 
     <!-- Navigation -->
-    <nav class="bg-[#0B1120] text-white shadow-xl sticky top-0 z-40 border-b border-slate-800 shrink-0">
+    <nav class="bg-[#0B1120] text-white shadow-xl sticky top-0 z-40 border-b border-slate-800">
         <div class="container mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center gap-4">
                 <button onclick="goToDashboard()" class="hover:bg-slate-800 p-2 rounded-lg text-slate-300 transition-colors bg-slate-800/50">
                     <i class="fas fa-arrow-left"></i>
                 </button>
-                <div class="bg-blue-600 rounded-lg w-10 h-10 flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.4)]">
+                <div class="bg-purple-600 rounded-lg w-10 h-10 flex items-center justify-center shadow-[0_0_15px_rgba(147,51,234,0.4)]">
                     <i class="fas fa-chart-pie text-white text-lg"></i>
                 </div>
-                <span class="font-extrabold text-2xl tracking-tight text-white hidden sm:block">Financial<span class="text-blue-500">Matrix</span></span>
+                <span class="font-extrabold text-2xl tracking-tight text-white hidden sm:block">Enterprise<span class="text-purple-400">Analytics</span></span>
             </div>
             
-            <div class="flex items-center gap-3">
-                <button onclick="exportCSV()" class="hidden md:flex items-center text-xs font-bold uppercase bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-lg text-slate-300 transition">
-                    <i class="fas fa-file-csv mr-2 text-blue-400"></i> Export Ledger
-                </button>
-                <button onclick="printReport()" class="hidden md:flex items-center text-xs font-bold uppercase bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-lg text-slate-300 transition">
-                    <i class="fas fa-print mr-2 text-slate-400"></i> Print Matrix
-                </button>
-                <button onclick="toggleFilterDrawer()" class="flex items-center text-xs font-bold uppercase bg-blue-600 hover:bg-blue-500 border border-blue-500 px-5 py-2.5 rounded-lg text-white shadow-[0_0_15px_rgba(37,99,235,0.3)] transition">
-                    <i class="fas fa-sliders-h sm:mr-2"></i> <span class="hidden sm:inline">Filter Parameters</span>
-                </button>
+            <div class="flex items-center gap-4">
+                <div class="hidden md:block text-xs font-bold uppercase bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg text-purple-400 tracking-wider">
+                    <i class="fas fa-server mr-1 align-middle"></i> TELEMETRY LIVE
+                </div>
             </div>
         </div>
     </nav>
 
-    <main class="flex-1 min-h-0 flex flex-col relative bg-[#0B1120]">
+    <main class="flex-grow flex flex-col relative">
         
         <!-- LOADING VIEW -->
         <div id="view-loading" class="fixed inset-0 z-[60] bg-[#0B1120] flex flex-col items-center justify-center transition-opacity duration-500">
             <div class="relative flex items-center justify-center">
-                <div class="absolute animate-ping inline-flex h-20 w-20 rounded-full bg-blue-500 opacity-20"></div>
-                <div class="relative inline-flex rounded-full h-10 w-10 bg-blue-600 shadow-[0_0_30px_rgba(37,99,235,0.8)]"></div>
+                <div class="absolute animate-ping inline-flex h-20 w-20 rounded-full bg-purple-500 opacity-20"></div>
+                <div class="relative inline-flex rounded-full h-10 w-10 bg-purple-600 shadow-[0_0_30px_rgba(147,51,234,0.8)]"></div>
             </div>
             <div class="mt-8 text-center space-y-2">
-                <h2 class="text-white font-extrabold text-2xl tracking-tight">Syncing Financials...</h2>
+                <h2 class="text-white font-extrabold text-2xl tracking-tight">Processing Analytics...</h2>
             </div>
         </div>
 
@@ -644,53 +671,183 @@
             </div>
         </div>
 
-        <!-- MAIN REPORTS VIEW -->
-        <div id="view-reports" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0 overflow-y-auto hide-scroll">
-
-            <!-- Stats Overview (Matching Reference Images) -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 shrink-0">
-                <div class="bg-[#131B2B] p-6 rounded-[1.5rem] border border-slate-800 shadow-sm flex flex-col justify-center">
-                    <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-2">Total Consumption</span>
-                    <span id="stat-total-meals" class="text-4xl font-black text-white font-mono">0</span>
-                </div>
-                <div class="bg-[#131B2B] p-6 rounded-[1.5rem] border border-slate-800 shadow-sm flex flex-col justify-center">
-                    <span class="text-emerald-500 text-[10px] font-bold uppercase tracking-[0.15em] mb-2">Std. Segment Value</span>
-                    <span id="stat-std-cost" class="text-3xl font-black text-emerald-400 font-mono tracking-tight">LKR 0.00</span>
-                </div>
-                <div class="bg-[#131B2B] p-6 rounded-[1.5rem] border border-slate-800 shadow-sm flex flex-col justify-center">
-                    <span class="text-indigo-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-2">ALC Segment Value</span>
-                    <span id="stat-alc-cost" class="text-3xl font-black text-indigo-400 font-mono tracking-tight">LKR 0.00</span>
-                </div>
-                <div class="bg-[#1A2234] p-6 rounded-[1.5rem] border border-blue-900/50 shadow-xl flex flex-col justify-center relative overflow-hidden">
-                    <div class="absolute -right-10 -bottom-10 w-40 h-40 bg-blue-600/10 rounded-full blur-2xl pointer-events-none"></div>
-                    <span class="text-blue-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-2 relative z-10">Gross Liability</span>
-                    <span id="stat-combined-cost" class="text-3xl font-black text-white font-mono tracking-tight relative z-10">LKR 0.00</span>
+        <!-- MAIN REPORTING VIEW -->
+        <div id="view-report" class="hidden container mx-auto px-6 py-8 animate-fade-in flex-grow flex flex-col space-y-8">
+            
+            <!-- MONTHLY KPIs -->
+            <div>
+                <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2">Fiscal Month Overview</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Accumulated Cost Liability</div>
+                        <div id="rpt-month-spend" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">LKR 0.00</div>
+                        <i class="fas fa-coins text-indigo-100 dark:text-indigo-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Clearances Issued</div>
+                        <div id="rpt-month-issued" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
+                        <i class="fas fa-ticket-alt text-purple-100 dark:text-purple-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-teal-500"></div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Meals Consumed / Redeemed</div>
+                        <div id="rpt-month-consumed" class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">0</div>
+                        <i class="fas fa-check-double text-teal-100 dark:text-teal-900/40 text-5xl absolute right-4 bottom-4 pointer-events-none group-hover:scale-110 transition-transform"></i>
+                    </div>
                 </div>
             </div>
 
-            <!-- Ledger Table Area -->
-            <div class="bg-[#131B2B] rounded-[2rem] border border-slate-800 shadow-xl flex flex-col flex-grow overflow-hidden">
-                <div class="overflow-x-auto flex-grow hide-scroll relative">
-                    <table class="min-w-full divide-y divide-slate-800/50">
-                        <thead class="bg-[#0f172a] sticky top-0 shadow-md z-10">
+            <!-- DAILY KPIs -->
+            <div>
+                <h3 class="font-extrabold text-slate-800 dark:text-white tracking-tight text-xl mb-4 border-b border-slate-200 dark:border-slate-700/50 pb-2">Today's Real-Time Metrics</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-blue-200 uppercase tracking-widest mb-1">Today's Gross Cost</div>
+                        <div id="rpt-total-spend" class="text-3xl font-black tracking-tight">LKR 0.00</div>
+                        <i class="fas fa-chart-line text-blue-400/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
+                    <div class="bg-gradient-to-br from-orange-400 to-orange-500 p-6 rounded-2xl shadow-lg shadow-orange-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-orange-200 uppercase tracking-widest mb-1">Active Entries (Today)</div>
+                        <div id="rpt-tokens-issued-today" class="text-3xl font-black tracking-tight">0</div>
+                        <i class="fas fa-door-open text-orange-300/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
+                    <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-2xl shadow-lg shadow-emerald-500/20 text-white relative overflow-hidden">
+                        <div class="text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">Cleared Meals (Today)</div>
+                        <div id="rpt-tokens-consumed-today" class="text-3xl font-black tracking-tight">0</div>
+                        <i class="fas fa-utensils text-emerald-400/30 text-6xl absolute -right-2 -bottom-2"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHARTS & DISTRIBUTIONS -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- 7-Day Trend (Full Width) -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 col-span-1 lg:col-span-3">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-8 border-b border-slate-100 dark:border-slate-700/50 pb-2 flex items-center"><i class="fas fa-chart-bar text-slate-400 mr-2"></i> 7-Day Financial Velocity Trend</h4>
+                    <div id="rpt-chart-trend" class="flex items-end justify-between h-48 space-x-3"></div>
+                </div>
+                
+                <!-- Demographics -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost by ALC Meal Variety</h4>
+                    <div id="rpt-chart-meal" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost by Site / Facility</h4>
+                    <div id="rpt-chart-site" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost by Department</h4>
+                    <div id="rpt-chart-dept" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 col-span-1 lg:col-span-1">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost by Company</h4>
+                    <div id="rpt-chart-comp" class="space-y-4 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 col-span-1 lg:col-span-2">
+                    <h4 class="font-bold text-slate-800 dark:text-white mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Cost by Account / Cost Center</h4>
+                    <div id="rpt-chart-acct" class="space-y-4 max-h-48 overflow-y-auto pr-2 flex-grow"></div>
+                </div>
+            </div>
+
+            <!-- LIVE TRANSACTION FEED -->
+            <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div class="px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 font-bold text-slate-800 dark:text-white flex items-center justify-between">
+                    <div class="flex items-center"><i class="fas fa-list-ul text-slate-400 mr-3"></i> System Transaction Feed (Today's Live Ledger)</div>
+                </div>
+                <div class="max-h-80 overflow-y-auto hide-scroll">
+                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700/50">
+                        <thead class="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
                             <tr>
-                                <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Temporal Log</th>
-                                <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Profile ID</th>
-                                <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Identity Profile</th>
-                                <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Assigned Dept.</th>
-                                <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Meal Category</th>
-                                <th class="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Designated Value</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Personnel Profile</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Time</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Meal Variety</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Department</th>
+                                <th class="px-6 py-4 text-left text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Status</th>
+                                <th class="px-6 py-4 text-right text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Cost Applied</th>
+                                <th class="px-6 py-4 text-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Action</th>
                             </tr>
                         </thead>
-                        <tbody id="audit-ledger-list" class="bg-[#131B2B] divide-y divide-slate-800/50">
-                            <!-- Injected by JS -->
-                        </tbody>
+                        <tbody id="report-table-body" class="bg-slate-50 dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700/50"></tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- DATA INTELLIGENCE CENTER (EXPORTS) -->
+            <div class="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 rounded-2xl shadow-xl border border-slate-700 dark:border-slate-800 p-8 relative overflow-hidden group">
+                <!-- Abstract decorative bg -->
+                <div class="absolute right-0 top-0 w-96 h-full bg-purple-600/5 skew-x-12 transform origin-bottom pointer-events-none"></div>
+                <div class="absolute right-20 top-0 w-48 h-full bg-indigo-600/5 -skew-x-12 transform origin-top pointer-events-none"></div>
+                
+                <div class="flex items-center justify-between mb-8 relative z-10 border-b border-slate-700/50 pb-4">
+                    <div>
+                        <h3 class="font-black text-3xl text-white tracking-tight flex items-center gap-3">
+                            <div class="bg-purple-600 p-2 rounded-lg shadow-lg shadow-purple-500/20"><i class="fas fa-database text-white text-xl"></i></div>
+                            Data Intelligence Center
+                        </h3>
+                        <p class="text-slate-400 text-sm mt-1 ml-14 font-medium">Generate secure audit reports and extract system telemetry.</p>
+                    </div>
+                    <div class="hidden md:block">
+                        <span class="bg-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-slate-700">Analytics Root</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
+                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="far fa-calendar-alt mr-2"></i> Query Range Start</label>
+                        <input type="date" id="rpt-start" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner font-mono">
+                    </div>
+                    
+                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="far fa-calendar-check mr-2"></i> Query Range End</label>
+                        <input type="date" id="rpt-end" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner font-mono">
+                    </div>
+                    
+                    <div class="bg-slate-800/50 dark:bg-slate-900/50 p-6 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors">
+                        <label class="flex items-center text-[11px] font-bold text-purple-400 mb-3 uppercase tracking-widest"><i class="fas fa-filter mr-2"></i> Data Matrix Filter</label>
+                        <div class="relative">
+                            <select id="rpt-filter-type" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition shadow-inner appearance-none cursor-pointer font-medium">
+                                <option value="ALL">Raw Terminal Audit (All Actions)</option>
+                                <option value="CONSUMED_ONLY">Financial Ledger (Redeemed Only)</option>
+                                <option value="MEAL">Aggregate by Meal Variety</option>
+                                <option value="DEPT">Aggregate by Department</option>
+                                <option value="COMP">Aggregate by Organization</option>
+                                <option value="ACCT">Aggregate by Cost Center / Account</option>
+                                <option value="SITE">Aggregate by Facility / Site</option>
+                            </select>
+                            <div class="absolute right-4 top-3.5 text-slate-500 pointer-events-none"><i class="fas fa-chevron-down text-xs"></i></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t border-slate-700/50 flex flex-col sm:flex-row gap-4 justify-end relative z-10">
+                    <button onclick="generateReportPreview()" class="px-6 py-3.5 rounded-xl font-bold text-sm bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white transition flex items-center justify-center shadow-lg"><i class="fas fa-eye mr-2"></i> Crystal Preview</button>
+                    <button onclick="generateCSV()" id="rpt-gen-btn" class="px-8 py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-transparent shadow-lg shadow-purple-900/50 transition transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center"><i class="fas fa-cloud-download-alt mr-2"></i> Extract Secure CSV</button>
                 </div>
             </div>
             
         </div>
     </main>
 
+    <!-- REPORT PREVIEW MODAL -->
+    <div id="report-preview-modal" class="fixed inset-0 bg-slate-900/90 hidden z-50 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-fade-in">
+            <div class="bg-slate-100 border-b border-slate-200 p-5 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 text-lg flex items-center"><i class="fas fa-print mr-3 text-purple-600"></i> Audit Report Preview</h3>
+                <div class="flex gap-3">
+                    <button onclick="printReport()" class="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-purple-700 shadow-md transition flex items-center"><i class="fas fa-print mr-2"></i> Print Document</button>
+                    <button onclick="document.getElementById('report-preview-modal').classList.add('hidden')" class="bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-300 transition flex items-center"><i class="fas fa-times mr-2"></i> Close</button>
+                </div>
+            </div>
+            <div id="report-preview-content" class="flex-grow overflow-auto p-10 bg-white text-black hide-scroll">
+                <!-- Content injected here via JS -->
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
+
+```
