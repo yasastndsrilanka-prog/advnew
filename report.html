@@ -79,7 +79,9 @@
         const app = initializeApp(appConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'enterprise-dashboard-v1';
+        
+        // FIXED: Syncs with the main dashboard's storage key perfectly
+        const appId = (typeof __app_id !== 'undefined') ? __app_id : 'canteen-os-live';
 
         // State
         let personnelMap = {};
@@ -114,7 +116,7 @@
         window.showToast = (message, type = 'success') => {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
-            const colors = type === 'success' ? 'bg-purple-500 border-purple-600' : 'bg-red-500 border-red-600';
+            const colors = type === 'success' ? 'bg-[#a855f7] border-[#9333ea]' : 'bg-red-500 border-red-600';
             const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
             toast.className = `${colors} text-white px-4 py-3 rounded-xl shadow-lg border flex items-center gap-3 animate-fade-in text-sm font-bold mt-2`;
             toast.innerHTML = `<i class="fas ${icon}"></i> <span>${message}</span>`;
@@ -135,11 +137,9 @@
             } catch (err) { console.error("Auth Error:", err); }
         };
 
+        // FIXED: Clear hard redirect directly to dashboard avoiding history conflicts
         window.goToDashboard = () => {
-            try {
-                if (window.location.protocol === 'blob:') window.history.back();
-                else window.location.href = 'index.html';
-            } catch (e) { window.history.back(); }
+            window.location.href = 'index.html';
         };
 
         onAuthStateChanged(auth, (user) => {
@@ -166,34 +166,29 @@
 
         const loadData = () => {
             // 1. Get Daily Token Values Map
-            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
+            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'meal_prices');
             onSnapshot(settingsRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.dailyRates) {
+                    if (data.prices) {
+                        dailyRates = data.prices;
+                    } else if (data.dailyRates) {
                         dailyRates = data.dailyRates;
-                    } else if (data.mealTokenValue !== undefined) {
-                        // Fallback to legacy single value format
-                        const val = parseFloat(data.mealTokenValue) || 0;
-                        dailyRates = {
-                            "Sunday": val, "Monday": val, "Tuesday": val, "Wednesday": val,
-                            "Thursday": val, "Friday": val, "Saturday": val
-                        };
                     }
                 }
                 updateAnalytics();
             });
 
             // 2. Listen to Personnel DB
-            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
             onSnapshot(pRef, (snap) => {
                 personnelMap = {};
                 snap.forEach(doc => personnelMap[doc.id] = doc.data());
                 updateAnalytics();
             });
 
-            // 3. Listen to Attendance Logs
-            const aRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
+            // 3. Listen to Attendance Logs (Tokens)
+            const aRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
             onSnapshot(aRef, (snap) => {
                 attendanceLogs = [];
                 snap.forEach(doc => attendanceLogs.push({ id: doc.id, ...doc.data() }));
@@ -228,29 +223,32 @@
 
             // Sort logs by newest first for the live feed
             const sortedLogs = [...attendanceLogs].sort((a, b) => {
-                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
-                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                const tA = a.issuedAt?.toMillis ? a.issuedAt.toMillis() : (a.issuedAt?.seconds || 0);
+                const tB = b.issuedAt?.toMillis ? b.issuedAt.toMillis() : (b.issuedAt?.seconds || 0);
                 return tB - tA;
             });
 
             let tableCount = 0;
 
             sortedLogs.forEach(log => {
-                const emp = personnelMap[log.empId] || {};
-                const isConsumed = log.mealRedeemed === true;
+                const emp = personnelMap[log.empId] || { name: log.empName, dept: log.dept, site: log.site, accountName: log.account, companyName: log.company };
+                const logDate = log.issuedDate || log.date;
+                const isConsumed = log.status === 'CONSUMED' || log.status === 'REDEEMED' || log.mealRedeemed === true;
                 
+                if (!logDate) return;
+
                 // Determine rate based on the log date
-                let rateForDay = 0;
-                if (log.date) {
-                    const dayName = getDayName(log.date);
-                    rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                let cost = 0;
+                if (log.costs && typeof log.costs.total === 'number') {
+                    cost = isConsumed ? log.costs.total : 0;
+                } else {
+                    const dayName = getDayName(logDate);
+                    const rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                    cost = isConsumed ? rateForDay : 0;
                 }
                 
-                // Calculate Cost
-                const cost = isConsumed ? rateForDay : 0;
-                
                 // Monthly Stats
-                if (log.date && log.date.startsWith(currentMonthStr)) {
+                if (logDate.startsWith(currentMonthStr)) {
                     issuedMonth++;
                     if (isConsumed) {
                         totalCostMonth += cost;
@@ -259,7 +257,7 @@
                 }
 
                 // Daily Stats & Feed
-                if(log.date === todayStr) {
+                if(logDate === todayStr) {
                     issuedToday++;
                     if (isConsumed) {
                         totalCostToday += cost;
@@ -271,7 +269,10 @@
                         const tr = document.createElement('tr');
                         tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700/50 last:border-0 transition-colors animate-fade-in';
                         
-                        const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending';
+                        let timeStr = 'Pending';
+                        if(log.issuedAt?.toDate) timeStr = log.issuedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        else if (log.issuedAt?.seconds) timeStr = new Date(log.issuedAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
                         const statusBadge = isConsumed 
                             ? `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">REDEEMED</span>`
                             : `<span class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wide font-bold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">CLEARED</span>`;
@@ -294,11 +295,11 @@
 
                 // Distributions (Only count consumed meals for cost distributions)
                 if (isConsumed) {
-                    if (dailyStats.hasOwnProperty(log.date)) dailyStats[log.date] += cost;
+                    if (dailyStats.hasOwnProperty(logDate)) dailyStats[logDate] += cost;
 
                     const dept = emp.department || emp.dept || 'Unknown';
-                    const acct = emp.accountName || 'CTE';
-                    const comp = emp.companyName || 'Internal';
+                    const acct = emp.accountName || emp.account || 'CTE';
+                    const comp = emp.companyName || emp.company || 'Internal';
                     const site = emp.site || 'Unknown';
 
                     deptStats[dept] = (deptStats[dept] || 0) + cost;
@@ -332,7 +333,7 @@
                 trendContainer.innerHTML += `
                     <div class="flex flex-col items-center flex-1">
                         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-t-lg relative group h-32 flex items-end justify-center">
-                            <div class="w-3/4 bg-[#a855f7] rounded-t-md transition-all duration-700 hover:bg-purple-400 shadow-md" style="height: ${Math.max(hPercent, 2)}%"></div>
+                            <div class="w-3/4 bg-[#a855f7] rounded-t-md transition-all duration-700 hover:bg-[#9333ea] shadow-md" style="height: ${Math.max(hPercent, 2)}%"></div>
                             <div class="absolute -top-10 bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-lg pointer-events-none">${formatter.format(val)}</div>
                         </div>
                         <div class="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-bold uppercase tracking-wider">${new Date(date).toLocaleDateString('en-US', {weekday: 'short'})}</div>
@@ -400,28 +401,35 @@
             let totalCost = 0;
 
             // Filter and sort logs
-            const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+            const filteredLogs = attendanceLogs.filter(log => {
+                const logDate = log.issuedDate || log.date;
+                return logDate >= startDate && logDate <= endDate;
+            });
+            
             filteredLogs.sort((a, b) => {
-                const tA = a.markedAt?.toMillis ? a.markedAt.toMillis() : 0;
-                const tB = b.markedAt?.toMillis ? b.markedAt.toMillis() : 0;
+                const tA = a.issuedAt?.toMillis ? a.issuedAt.toMillis() : (a.issuedAt?.seconds || 0);
+                const tB = b.issuedAt?.toMillis ? b.issuedAt.toMillis() : (b.issuedAt?.seconds || 0);
                 return tA - tB; // Chronological
             });
 
             filteredLogs.forEach(log => {
-                const emp = personnelMap[log.empId] || {};
-                const isConsumed = log.mealRedeemed === true;
+                const emp = personnelMap[log.empId] || { name: log.empName, dept: log.dept, site: log.site, accountName: log.account, companyName: log.company };
+                const logDate = log.issuedDate || log.date;
+                const isConsumed = log.status === 'CONSUMED' || log.status === 'REDEEMED' || log.mealRedeemed === true;
                 
-                // Determine rate based on date
-                let rateForDay = 0;
-                if (log.date) {
-                    const dayName = getDayName(log.date);
-                    rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                // Determine rate
+                let cost = 0;
+                if (log.costs && typeof log.costs.total === 'number') {
+                    cost = isConsumed ? log.costs.total : 0;
+                } else {
+                    const dayName = getDayName(logDate);
+                    const rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                    cost = isConsumed ? rateForDay : 0;
                 }
-                const cost = isConsumed ? rateForDay : 0;
                 
                 const dept = emp.department || emp.dept || '';
-                const acct = emp.accountName || 'CTE';
-                const comp = emp.companyName || '';
+                const acct = emp.accountName || emp.account || 'CTE';
+                const comp = emp.companyName || emp.company || '';
                 const site = emp.site || '';
 
                 // Grouping Filter Logic
@@ -437,12 +445,15 @@
                 else if(filterType === 'COMP') groupVal = comp;
                 else if(filterType === 'SITE') groupVal = site;
 
-                const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                let timeStr = '';
+                if(log.issuedAt?.toDate) timeStr = log.issuedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                else if (log.issuedAt?.seconds) timeStr = new Date(log.issuedAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
                 const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
 
                 rows += `
                     <tr>
-                        <td>${log.date} ${timeStr}</td>
+                        <td>${logDate} ${timeStr}</td>
                         <td>${emp.name || 'Unknown'}</td>
                         <td>${log.empId}</td>
                         <td>${dept}</td>
@@ -523,38 +534,47 @@
                 let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvHeaders;
                 let count = 0;
 
-                const filteredLogs = attendanceLogs.filter(log => log.date >= startDate && log.date <= endDate);
+                const filteredLogs = attendanceLogs.filter(log => {
+                    const logDate = log.issuedDate || log.date;
+                    return logDate >= startDate && logDate <= endDate;
+                });
 
                 filteredLogs.forEach(log => {
-                    const emp = personnelMap[log.empId] || {};
-                    const isConsumed = log.mealRedeemed === true;
+                    const emp = personnelMap[log.empId] || { name: log.empName, dept: log.dept, site: log.site, accountName: log.account, companyName: log.company };
+                    const logDate = log.issuedDate || log.date;
+                    const isConsumed = log.status === 'CONSUMED' || log.status === 'REDEEMED' || log.mealRedeemed === true;
                     
                     if (filterType === 'CONSUMED_ONLY' && !isConsumed) return;
 
-                    // Determine rate based on date
-                    let rateForDay = 0;
-                    if (log.date) {
-                        const dayName = getDayName(log.date);
-                        rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                    // Determine rate
+                    let cost = 0;
+                    if (log.costs && typeof log.costs.total === 'number') {
+                        cost = isConsumed ? log.costs.total : 0;
+                    } else {
+                        const dayName = getDayName(logDate);
+                        const rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                        cost = isConsumed ? rateForDay : 0;
                     }
-                    const cost = isConsumed ? rateForDay : 0;
 
-                    const timeStr = log.markedAt?.toDate ? log.markedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                    let timeStr = '';
+                    if(log.issuedAt?.toDate) timeStr = log.issuedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    else if (log.issuedAt?.seconds) timeStr = new Date(log.issuedAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    
                     const statusStr = isConsumed ? 'REDEEMED' : 'CLEARED';
 
                     const row = [
-                        `"${log.date}"`, 
+                        `"${logDate}"`, 
                         `"${timeStr}"`, 
                         `"${emp.name || ''}"`, 
                         `"${log.empId}"`,
                         `"${emp.department || emp.dept || ''}"`, 
                         `"${emp.site || ''}"`, 
-                        `"${emp.accountName || 'CTE'}"`, 
-                        `"${emp.companyName || ''}"`, 
+                        `"${emp.accountName || emp.account || 'CTE'}"`, 
+                        `"${emp.companyName || emp.company || ''}"`, 
                         `"${statusStr}"`, 
                         cost, 
-                        `"${log.markedBy || ''}"`, 
-                        `"${log.redeemedBy || ''}"`
+                        `"${log.issuedBySysUser || log.markedBy || ''}"`, 
+                        `"${log.consumedBySysUser || log.redeemedBy || ''}"`
                     ];
 
                     csvContent += row.join(",") + "\r\n";
@@ -610,7 +630,7 @@
         </div>
     </nav>
 
-    <main class="flex-grow flex flex-col relative">
+    <main class="flex-grow flex flex-col relative justify-center">
         
         <!-- LOADING VIEW -->
         <div id="view-loading" class="fixed inset-0 z-[60] bg-[#0f172a] flex flex-col items-center justify-center transition-opacity duration-500">
@@ -623,9 +643,9 @@
             <h2 class="text-white font-bold text-2xl tracking-tight z-10 relative mt-2">Syncing Financials...</h2>
         </div>
 
-        <!-- UNAUTHORIZED VIEW -->
-        <div id="view-unauthorized" class="hidden absolute inset-0 z-[55] bg-[#0f172a] flex-col items-center justify-center text-center px-6 animate-fade-in">
-            <div class="bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 shadow-2xl max-w-md w-full relative overflow-hidden">
+        <!-- UNAUTHORIZED VIEW (Corrected CSS to center in remaining space, below navbar) -->
+        <div id="view-unauthorized" class="hidden flex-1 flex-col items-center justify-center text-center px-6 animate-fade-in relative z-10 py-16 w-full">
+            <div class="bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 shadow-2xl max-w-md w-full relative overflow-hidden mx-auto">
                 <div class="absolute -top-20 -right-20 w-40 h-40 bg-red-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 <i class="fas fa-shield-alt text-6xl text-red-500 mb-6 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]"></i>
                 <h2 class="text-2xl font-extrabold text-white mb-3">Access Denied</h2>
