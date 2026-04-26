@@ -159,8 +159,8 @@
         initAuth();
 
         const loadData = () => {
-            // Listen to Personnel DB (Using exact 'personnel' path)
-            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'personnel');
+            // CRITICAL FIX: Ensure path targets 'employees' exactly as specified in index (90).html
+            const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
             onSnapshot(pRef, (snap) => {
                 personnelList = {};
                 snap.forEach(doc => personnelList[doc.id] = { id: doc.id, ...doc.data() });
@@ -190,6 +190,7 @@
             document.getElementById('create-staff-form').reset();
             const idField = document.getElementById('new-emp-id');
             idField.readOnly = false;
+            idField.classList.remove('bg-slate-100', 'dark:bg-slate-700', 'cursor-not-allowed');
             isEditing = false;
             currentPhotoBase64 = null;
             document.getElementById('emp-photo-preview').classList.add('hidden');
@@ -237,7 +238,7 @@
                 employees = employees.filter(emp => {
                     const id = emp.id ? emp.id.toLowerCase() : '';
                     const name = emp.name ? emp.name.toLowerCase() : '';
-                    const dept = emp.dept ? emp.dept.toLowerCase() : '';
+                    const dept = emp.dept ? emp.dept.toLowerCase() : (emp.department ? emp.department.toLowerCase() : '');
                     const site = emp.site ? emp.site.toLowerCase() : '';
                     
                     return id.includes(searchVal) || name.includes(searchVal) || dept.includes(searchVal) || site.includes(searchVal);
@@ -245,7 +246,7 @@
             }
 
             if (employees.length === 0) { 
-                container.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center text-slate-500 font-medium"><i class="fas fa-users-slash text-3xl mb-3 opacity-50 block"></i> No personnel records found.</td></tr>'; 
+                container.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center text-slate-500 dark:text-slate-400 font-medium"><i class="fas fa-users-slash text-3xl mb-3 opacity-50 block"></i> No personnel records found.</td></tr>'; 
                 return; 
             }
 
@@ -267,7 +268,7 @@
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-sm font-bold text-white tracking-wide font-mono">${displayId}</td>
                     <td class="px-6 py-4 text-sm flex items-center font-bold text-slate-200">${photoHtml} ${emp.name}</td>
-                    <td class="px-6 py-4 text-sm text-slate-400">${emp.dept || '-'}</td>
+                    <td class="px-6 py-4 text-sm text-slate-400">${emp.dept || emp.department || '-'}</td>
                     <td class="px-6 py-4 text-sm text-slate-400">${emp.site || '-'}</td>
                     <td class="px-6 py-4">${statusBadge}</td>
                     <td class="px-6 py-4 text-sm text-right">
@@ -286,7 +287,7 @@
             const empId = document.getElementById('new-emp-id').value.trim().toUpperCase();
             if (!empId) return showToast('ID required', 'error');
             
-            // Map strictly to index(90).html expected structure
+            // Map strictly to index(90).html expected structure. Notice the `employees` collection
             const staffData = {
                 id: empId,
                 name: document.getElementById('new-emp-name').value.trim(),
@@ -301,7 +302,8 @@
             if (currentPhotoBase64) staffData.photoData = currentPhotoBase64;
 
             try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'personnel', empId), staffData, { merge: true });
+                // Ensure write accesses the correct 'employees' path
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', empId), staffData, { merge: true });
                 window.showToast(isEditing ? 'Profile Updated' : 'Profile Created', 'success');
                 resetStaffForm();
                 switchStaffTab('directory');
@@ -316,13 +318,14 @@
             if (!emp) return;
             document.getElementById('new-emp-id').value = emp.id;
             document.getElementById('new-emp-name').value = emp.name || '';
-            document.getElementById('new-dept-name').value = emp.dept || '';
+            document.getElementById('new-dept-name').value = emp.dept || emp.department || '';
             document.getElementById('new-site-name').value = emp.site || '';
             document.getElementById('new-acct-name').value = emp.accountName || 'CTE';
             document.getElementById('new-comp-name').value = emp.companyName || '';
             
             const idField = document.getElementById('new-emp-id');
             idField.readOnly = true;
+            idField.classList.add('bg-slate-100', 'dark:bg-slate-700', 'cursor-not-allowed');
             
             if (emp.photoData) {
                 currentPhotoBase64 = emp.photoData;
@@ -341,7 +344,8 @@
         window.deleteStaff = async (id) => {
             if(confirm(`Permanently delete record for ${id}?`)) {
                 try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'personnel', id));
+                    // Ensure deletion targets the 'employees' collection
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', id));
                     window.showToast('Record Deleted', 'success');
                 } catch(e) {
                     window.showToast('Failed to delete.', 'error');
@@ -520,6 +524,11 @@
                     <div>
                         <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Account</label>
                         <input type="text" id="new-acct-name" class="w-full border border-slate-700 rounded-lg px-4 py-3 bg-[#1A2234] text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-medium" value="CTE">
+                    </div>
+
+                    <!-- Hidden Status element that exists in index but missing from layout pic to match aesthetic -->
+                    <div class="md:col-span-2 hidden">
+                        <input type="hidden" id="new-status" value="ACTIVE">
                     </div>
                     
                     <div class="md:col-span-2 text-right mt-4">
