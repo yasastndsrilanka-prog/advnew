@@ -206,7 +206,8 @@
         // --- UI UPDATES ---
         function updateStatsUI() {
             const totalIssued = attendanceLogs.length;
-            const totalRedeemed = attendanceLogs.filter(log => log.mealRedeemed === true).length;
+            const redeemedLogs = attendanceLogs.filter(log => log.mealRedeemed === true);
+            const totalRedeemed = redeemedLogs.length;
 
             document.getElementById('stat-issued').innerText = totalIssued;
             document.getElementById('stat-redeemed').innerText = totalRedeemed;
@@ -217,6 +218,40 @@
             
             pBar.style.width = `${Math.min(percent, 100)}%`;
             pText.innerText = `${percent}% Fulfilled`;
+
+            // Render Redeemed Meal Variety Breakdown
+            const mealCounts = {};
+            redeemedLogs.forEach(log => {
+                const mealName = log.mealName || 'Standard Meal';
+                mealCounts[mealName] = (mealCounts[mealName] || 0) + 1;
+            });
+
+            let breakdownHtml = '';
+            if (Object.keys(mealCounts).length === 0) {
+                breakdownHtml = `<div class="text-xs text-slate-500 font-medium italic py-2 text-center">No meals redeemed yet today.</div>`;
+            } else {
+                Object.entries(mealCounts).sort((a,b) => b[1] - a[1]).forEach(([meal, count]) => {
+                    const isAlc = meal !== 'Standard Meal';
+                    const bgClass = isAlc ? 'bg-indigo-500/20' : 'bg-emerald-500/20';
+                    const textClass = isAlc ? 'text-indigo-400' : 'text-emerald-400';
+                    const icon = isAlc ? 'fa-fish' : 'fa-utensils';
+                    
+                    breakdownHtml += `
+                        <div class="flex justify-between items-center bg-slate-900/50 p-2.5 rounded-xl border border-slate-700/50 hover:bg-slate-800 transition-colors">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-lg ${bgClass} ${textClass} flex items-center justify-center text-xs shadow-inner border border-white/5">
+                                    <i class="fas ${icon}"></i>
+                                </div>
+                                <span class="text-xs font-bold text-slate-300 tracking-wide">${meal}</span>
+                            </div>
+                            <span class="${bgClass} ${textClass} font-black px-3 py-1 rounded-lg text-sm border border-white/5">${count}</span>
+                        </div>
+                    `;
+                });
+            }
+            
+            const breakdownContainer = document.getElementById('meal-breakdown-container');
+            if (breakdownContainer) breakdownContainer.innerHTML = breakdownHtml;
         }
 
         function renderRecentScans() {
@@ -466,7 +501,7 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-grow min-h-0">
                 
-                <!-- Left: Scanner Area -->
+                <!-- Left: Scanner Area & Stats -->
                 <div class="flex flex-col gap-6 shrink-0">
                     
                     <!-- UNIFIED SCANNER MODULE -->
@@ -487,7 +522,7 @@
                         </div>
                     </div>
                     
-                    <!-- Stats Dashboard -->
+                    <!-- Stats Dashboard with Meal Breakdown -->
                     <div class="grid grid-cols-2 gap-4 shrink-0">
                         <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-slate-700 shadow-sm relative overflow-hidden">
                             <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Security Check-ins</span>
@@ -506,6 +541,7 @@
                             </div>
                         </div>
 
+                        <!-- Progress Bar -->
                         <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-slate-700 shadow-sm col-span-2">
                             <div class="flex justify-between items-center mb-2">
                                 <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em]">Daily Fulfillment Rate</span>
@@ -513,6 +549,17 @@
                             </div>
                             <div class="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden border border-slate-600">
                                 <div id="progress-bar" class="bg-emerald-500 h-full rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Redeemed Meal Variety Breakdown -->
+                        <div class="bg-slate-800 p-5 rounded-[1.5rem] border border-slate-700 shadow-sm col-span-2 flex flex-col">
+                            <div class="flex justify-between items-center mb-3 border-b border-slate-700/50 pb-2">
+                                <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em]"><i class="fas fa-chart-pie mr-1.5"></i> Redeemed Variety Breakdown</span>
+                            </div>
+                            <div id="meal-breakdown-container" class="flex flex-col gap-2 max-h-40 overflow-y-auto hide-scroll flex-grow">
+                                <!-- Populated dynamically by JS -->
+                                <div class="text-xs text-slate-500 font-medium italic py-2 text-center">No meals redeemed yet today.</div>
                             </div>
                         </div>
                     </div>
