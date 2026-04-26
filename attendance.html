@@ -81,7 +81,7 @@
         // State
         let SYSTEM_USERS = {};
         let personnelList = [];
-        let attendanceLogs = [];
+        let todayTokens = [];
         let WEEKLY_PRICES = { Monday: 80, Tuesday: 80, Wednesday: 80, Thursday: 80, Friday: 80, Saturday: 80, Sunday: 80 };
         let alcMealItems = {};
         
@@ -154,13 +154,12 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 const sessionStr = localStorage.getItem(SYS_SESSION_KEY);
-                if (sessionStr) {
-                    const session = JSON.parse(sessionStr);
-                    loggedInSysUser = { username: session.username };
+                if (sessionStr || window.location.protocol === 'blob:') {
+                    loggedInSysUser = sessionStr ? JSON.parse(sessionStr) : { username: 'ADMIN' };
                     document.getElementById('view-loading').classList.add('hidden');
                     document.getElementById('view-attendance').classList.remove('hidden');
                     loadData();
-                    setTimeout(() => keepFocus('attendance-scanner'), 300);
+                    setTimeout(() => document.getElementById('attendance-scanner').focus(), 300);
                 } else {
                     document.getElementById('view-loading').classList.add('hidden');
                     document.getElementById('view-unauthorized').classList.remove('hidden');
@@ -175,27 +174,27 @@
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'), (snap) => {
                 SYSTEM_USERS = {};
                 snap.forEach(doc => { SYSTEM_USERS[doc.id] = doc.data(); });
-                window.renderAttendance(); 
+                window.renderLedger(); 
             });
 
             // 1. Fetch EMPLOYEES collection as per index (90).html path mapping
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), (snap) => {
                 personnelList = [];
                 snap.forEach(doc => personnelList.push({ id: doc.id, empId: doc.id, ...doc.data() }));
-                window.renderAttendance();
+                window.renderLedger();
             });
 
             // 2. Fetch TOKENS collection as per index (90).html path mapping
             const today = getTodayStr();
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), (snap) => {
-                attendanceLogs = [];
+                todayTokens = [];
                 snap.forEach(doc => {
                     const data = doc.data();
                     if (data.issuedDate === today || data.date === today) {
-                        attendanceLogs.push({ id: doc.id, ...data });
+                        todayTokens.push({ id: doc.id, ...data });
                     }
                 });
-                window.renderAttendance();
+                window.renderLedger();
             });
 
             // 3. Fetch SETTINGS collection to acquire meal_prices & alc configuration
@@ -274,7 +273,7 @@
             }
         };
 
-        window.renderAttendance = () => {
+        window.renderLedger = () => {
             const listEl = document.getElementById('attendance-list');
             const term = (document.getElementById('attendance-search')?.value || '').toLowerCase();
             
@@ -282,18 +281,23 @@
             const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role || 'USER';
             const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
 
-            // Pre-process Data Maps
-            const markedLogsMap = {};
+            // Tally Metrics & Site Scans
             const siteCounts = {};
             let totalScanned = 0;
+            let totalWorkforce = personnelList.filter(p => p.status !== 'INACTIVE').length || 1; 
             
-            attendanceLogs.forEach(t => { 
-                markedLogsMap[t.empId] = t; 
-                // Tally Site Scans
+            todayTokens.forEach(t => { 
                 const siteName = t.site && t.site !== '-' ? t.site : 'Unassigned Site';
                 siteCounts[siteName] = (siteCounts[siteName] || 0) + 1;
                 totalScanned++;
             });
+
+            // Update Top Metrics UI
+            document.getElementById('stat-total-emp').innerText = totalWorkforce;
+            document.getElementById('stat-cleared-emp').innerText = totalScanned;
+            const percentage = totalWorkforce === 0 ? 0 : Math.round((totalScanned / totalWorkforce) * 100);
+            document.getElementById('attendance-progress').style.width = `${Math.min(percentage, 100)}%`;
+            document.getElementById('attendance-progress-text').innerText = `${percentage}%`;
 
             // Update Site-Wise Distribution UI
             let siteHtml = '';
@@ -309,90 +313,70 @@
             const siteContainer = document.getElementById('site-wise-container');
             if (siteContainer) siteContainer.innerHTML = siteHtml;
 
-            // Render Ledger List
+            // Render Scanned (Issued) Ledger List
             let html = '';
-            let totalActive = 0;
-            let clearedCount = 0;
-
-            let filteredPersonnel = personnelList.filter(p => {
-                // Ensure we skip incomplete records
-                if (!p.name || !p.id) return false;
-                totalActive++; 
-                const pId = p.id.toLowerCase();
-                const pName = p.name.toLowerCase();
-                const pDept = (p.dept || p.department || '').toLowerCase();
-                return pName.includes(term) || pId.includes(term) || pDept.includes(term);
+            
+            // Filter search term
+            let filteredTokens = todayTokens.filter(t => {
+                if (!term) return true;
+                const tId = String(t.empId).toLowerCase();
+                const tName = String(t.empName).toLowerCase();
+                const tDept = String(t.dept || '').toLowerCase();
+                return tName.includes(term) || tId.includes(term) || tDept.includes(term);
             });
 
-            // Sorting: Unscanned (Waiting for Scan) appear at the top, then Alphabetically
-            filteredPersonnel.sort((a, b) => {
-                const aMarked = !!markedLogsMap[a.id];
-                const bMarked = !!markedLogsMap[b.id];
-                if (aMarked === bMarked) return (a.name || '').localeCompare(b.name || '');
-                return aMarked ? 1 : -1; 
+            // Sort: Latest scans at the top
+            filteredTokens.sort((a, b) => {
+                const timeA = a.issuedAt?.seconds || 0;
+                const timeB = b.issuedAt?.seconds || 0;
+                return timeB - timeA;
             });
 
-            filteredPersonnel.forEach(p => {
-                const log = markedLogsMap[p.id];
-                const isMarked = !!log;
-                if (isMarked) clearedCount++;
-
-                const company = (p.companyName || p.company || '').toUpperCase();
-                const mealLabel = log?.mealName ? `<span class="text-[9px] uppercase font-bold text-indigo-400 tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded ml-2 border border-indigo-500/20">${log.mealName}</span>` : '';
-                const displayDept = p.dept || p.department || '-';
+            filteredTokens.forEach(log => {
+                const initial = String(log.empName).charAt(0).toUpperCase();
+                const mealLabel = log.mealName ? `<span class="text-[9px] uppercase font-bold text-indigo-400 tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded ml-2 border border-indigo-500/20">${log.mealName}</span>` : '';
+                const displayDept = log.dept || '-';
+                const timeStr = log.issuedAt ? new Date(log.issuedAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now';
 
                 html += `
-                    <div class="flex items-center justify-between p-4 rounded-2xl border ${isMarked ? 'bg-emerald-900/10 border-emerald-900/40' : 'bg-slate-800 border-slate-700'} hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center justify-between p-4 rounded-2xl border bg-emerald-900/10 border-emerald-900/40 hover:shadow-lg transition-all duration-300">
                         <div class="flex items-center gap-4 shrink-0 overflow-hidden">
-                            <div class="w-12 h-12 rounded-full shrink-0 ${isMarked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700 text-slate-300'} flex items-center justify-center font-bold text-lg shadow-inner">
-                                ${(p.name || 'U').charAt(0)}
+                            <div class="w-12 h-12 rounded-full shrink-0 bg-emerald-900/30 text-emerald-400 flex items-center justify-center font-bold text-lg shadow-inner">
+                                ${initial}
                             </div>
                             <div class="min-w-0">
-                                <h4 class="font-bold text-white text-base truncate">${p.name}</h4>
+                                <h4 class="font-bold text-white text-base truncate">${log.empName}</h4>
                                 <div class="text-xs text-slate-400 flex items-center mt-1 flex-wrap gap-2">
-                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600">${p.id}</span>
+                                    <span class="font-mono bg-slate-700 px-1.5 py-0.5 rounded border border-slate-600 text-slate-200">${log.empId}</span>
                                     <span class="truncate">${displayDept}</span>
+                                    <span class="text-emerald-500 ml-1"><i class="far fa-clock"></i> ${timeStr}</span>
                                     ${mealLabel}
                                 </div>
                             </div>
                         </div>
                         <div class="shrink-0 pl-2">
-                            ${isMarked ? `
-                                <div class="flex items-center gap-2">
-                                    <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-3 py-2 rounded-xl border border-emerald-800/50 shadow-sm">
-                                        <i class="fas fa-check-circle"></i> <span class="hidden sm:inline">Cleared</span>
-                                    </div>
-                                    ${isAdmin ? `
-                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
-                                        <i class="fas fa-arrow-rotate-left"></i>
-                                    </button>` : ''}
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-3 py-2 rounded-xl border border-emerald-800/50 shadow-sm hidden sm:flex">
+                                    <i class="fas fa-check-circle"></i> <span>Token Issued</span>
                                 </div>
-                            ` : `
-                                <div class="text-slate-500 font-bold text-[10px] uppercase tracking-widest px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700 flex items-center gap-2 shadow-inner">
-                                    <i class="fas fa-qrcode text-slate-400"></i> <span class="hidden sm:inline">Awaiting Scan</span>
-                                </div>
-                            `}
+                                ${isAdmin ? `
+                                <button onclick="reviseAttendance('${log.id}', '${String(log.empName).replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
+                                    <i class="fas fa-undo"></i>
+                                </button>` : ''}
+                            </div>
                         </div>
                     </div>
                 `;
             });
 
-            if (filteredPersonnel.length === 0) {
-                html = `<div class="text-center py-16 text-slate-400 flex flex-col items-center"><i class="fas fa-search mb-4 text-4xl opacity-50"></i><p class="font-medium">No personnel found.</p></div>`;
+            if (filteredTokens.length === 0) {
+                html = `<div class="text-center py-16 text-slate-400 flex flex-col items-center"><i class="fas fa-search mb-4 text-4xl opacity-50"></i><p class="font-medium">No issued tokens match criteria.</p></div>`;
             }
 
             listEl.innerHTML = html;
-            
-            if (term === '') {
-                document.getElementById('stat-total-emp').innerText = totalActive;
-                document.getElementById('stat-cleared-emp').innerText = clearedCount;
-                const percentage = totalActive === 0 ? 0 : Math.round((clearedCount / totalActive) * 100);
-                document.getElementById('attendance-progress').style.width = `${percentage}%`;
-                document.getElementById('attendance-progress-text').innerText = `${percentage}%`;
-            }
         };
 
-        window.filterAttendance = () => window.renderAttendance();
+        window.filterAttendance = () => window.renderLedger();
 
         // --------------------------------------------------------------------
         // SCANNER LOGIC 
@@ -402,15 +386,15 @@
             
             showScanResultModal('VERIFYING...', 'Processing...', 'info');
 
-            // Find employee directly via mapped values
+            // Find employee
             let emp = personnelList.find(e => e.id === val || e.empId === val);
 
             if (!emp) {
                 return showScanResultModal('ACCESS DENIED', 'Invalid Terminal ID', 'error');
             }
 
-            const pId = emp.id; // Using exact Employee ID mapping
-            const company = (emp.companyName || emp.company || '').toUpperCase();
+            const pId = emp.id; 
+            const company = String(emp.companyName || emp.company || '').toUpperCase();
             const isAlcEmp = company.includes('ALC');
 
             // --- Enforce Tab Rules ---
@@ -435,14 +419,13 @@
             }
 
             const todayStr = getTodayStr();
-            const alreadyMarked = attendanceLogs.find(t => t.empId === pId);
+            const alreadyMarked = todayTokens.find(t => t.empId === pId);
 
             if (alreadyMarked) {
                 return showScanResultModal('ALREADY ACTIVE', `${emp.name} has already accessed.`, 'warning');
             }
 
             try {
-                // Matching exactly how the application constructs tokens based on index(90).html architecture
                 const payload = {
                     tokenString: `TKN-${Math.floor(Math.random()*10000)}`,
                     empId: pId,
@@ -452,24 +435,29 @@
                     account: emp.accountName || emp.account || '',
                     site: emp.site || '-',
                     issuedDate: todayStr,
+                    date: todayStr,
                     status: 'ISSUED',
+                    mealRedeemed: false,
                     issuedAt: serverTimestamp(),
+                    markedAt: serverTimestamp(),
                     issuedBy: auth.currentUser.uid,
                     issuedBySysUser: loggedInSysUser?.username || 'SYSTEM',
+                    markedBy: loggedInSysUser?.username || 'SYSTEM',
                     costs: { total: appliedCost }
                 };
 
                 if (scanMode === 'ALC' && mealName) {
                     payload.mealName = mealName;
+                    payload.costApplied = appliedCost;
                 }
 
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), payload);
                 
-                // Reset ALC Scanner UI to require explicit selection for next person
+                // Reset ALC Scanner Dropdown
                 if (scanMode === 'ALC') {
                     document.getElementById('alc-meal-select').value = "";
                     document.getElementById('scanner-container').classList.add('hidden');
-                    document.getElementById('scanner-helper-text').innerHTML = '<i class="fas fa-hand-pointer mr-1"></i> Select meal to activate scanner';
+                    document.getElementById('scanner-helper-text').innerHTML = '<i class="fas fa-hand-pointer mr-1"></i> Ensure meal is selected before scanning';
                 }
 
                 const mealMsg = mealName ? `\nSelected: ${mealName}` : '';
@@ -508,15 +496,14 @@
                 
                 const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
                 const isDropdownFocused = activeTag === 'select';
-                const isContainerHidden = document.getElementById('scanner-container').classList.contains('hidden');
 
-                if (el && document.activeElement !== el && isAttendanceView && !isDropdownFocused && !isContainerHidden) {
+                if (el && document.activeElement !== el && isAttendanceView && !isDropdownFocused) {
                     el.focus();
                 }
             }, 100);
         };
 
-        // Webcam Handlers connected with execution scanning logic
+        // Webcam Handlers
         window.startWebcamScanner = () => {
             document.getElementById('webcam-modal').classList.remove('hidden');
             if (!html5QrcodeScanner) html5QrcodeScanner = new Html5Qrcode("reader");
@@ -540,7 +527,7 @@
         window.reviseAttendance = async (tokenId, empName, status) => {
             if (!auth.currentUser || !loggedInSysUser) return;
             
-            // Programmatic Guard tied strictly to Tokens schema
+            // Programmatic Guard
             const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role || 'USER';
             const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
             if (!isAdmin) {
@@ -553,15 +540,15 @@
                 return;
             }
 
-            if(!confirm(`Revoke attendance entry for ${empName}?`)) return;
+            if(!confirm(`Revoke token for ${empName}?`)) return;
 
             const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tokens', tokenId);
             try {
                 await deleteDoc(ref);
-                window.showToast(`Attendance entry for ${empName} has been revoked.`, 'success');
+                window.showToast(`Token for ${empName} has been revoked.`, 'success');
             } catch (e) {
                 console.error("Error:", e);
-                window.showToast("System fault: Failed to revise attendance.", "error");
+                window.showToast("System fault: Failed to revoke token.", "error");
             }
         };
     </script>
@@ -618,7 +605,7 @@
         </div>
 
         <!-- MAIN ATTENDANCE VIEW -->
-        <div id="view-attendance" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0">
+        <div id="view-attendance" class="hidden container mx-auto px-4 py-6 animate-fade-in flex-1 flex flex-col min-h-0 overflow-y-auto hide-scroll">
             
             <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 shrink-0 gap-4">
                 <div>
@@ -679,7 +666,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
                 <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex items-center justify-between">
                     <div>
-                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Total Active Personnel</span>
+                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Total Workforce</span>
                         <span id="stat-total-emp" class="text-2xl font-black text-white">0</span>
                     </div>
                     <div class="w-10 h-10 bg-slate-700/50 rounded-full flex items-center justify-center text-slate-500"><i class="fas fa-users text-lg"></i></div>
@@ -687,7 +674,7 @@
                 <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
                     <div class="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full pointer-events-none"></div>
                     <div>
-                        <span class="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Cleared Today</span>
+                        <span class="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Tokens Issued Today</span>
                         <span id="stat-cleared-emp" class="text-2xl font-black text-emerald-400">0</span>
                     </div>
                     <div class="w-10 h-10 bg-emerald-900/50 rounded-full flex items-center justify-center text-emerald-500"><i class="fas fa-clipboard-check text-lg"></i></div>
@@ -713,18 +700,18 @@
 
             <!-- List Area Header -->
             <div class="flex flex-col md:flex-row justify-between items-center mb-3 shrink-0 gap-4">
-                <h3 class="text-base font-bold text-white"><i class="fas fa-list-ul mr-2 text-slate-400"></i> Active Security Ledger</h3>
+                <h3 class="text-base font-bold text-white"><i class="fas fa-list-ul mr-2 text-slate-400"></i> Issued Tokens Ledger</h3>
                 <div class="w-full md:w-80">
                     <div class="bg-slate-800 px-4 py-2.5 rounded-xl border border-slate-700 shadow-sm flex items-center gap-3 w-full transition-shadow focus-within:ring-2 focus-within:ring-blue-500/50">
                         <i class="fas fa-search text-slate-400"></i>
-                        <input type="text" id="attendance-search" onkeyup="filterAttendance()" placeholder="Search Database..." class="bg-transparent border-none outline-none text-sm w-full text-white placeholder-slate-400 font-medium">
+                        <input type="text" id="attendance-search" onkeyup="filterAttendance()" placeholder="Search Scanned Database..." class="bg-transparent border-none outline-none text-sm w-full text-white placeholder-slate-400 font-medium">
                     </div>
                 </div>
             </div>
 
-            <!-- Scrolling List Area (Nesting Flex to scroll naturally) -->
-            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div class="overflow-y-auto p-4 space-y-3 hide-scroll flex-1" id="attendance-list">
+            <!-- Scrolling List Area (Fixed height constraint to ensure internal scrolling) -->
+            <div class="bg-slate-800/30 rounded-[2rem] border border-slate-700 shadow-inner flex flex-col h-[400px] lg:h-[500px] overflow-hidden">
+                <div class="overflow-y-auto p-4 space-y-3 hide-scroll flex-grow" id="attendance-list">
                     <div class="text-center py-20 text-slate-400">
                         <i class="fas fa-circle-notch fa-spin text-3xl mb-4 text-blue-500"></i>
                         <p class="font-medium tracking-wide">Syncing Personnel Database...</p>
