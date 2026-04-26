@@ -87,19 +87,31 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, doc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const appConfig = {
-            apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
-            authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
-            projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
-            storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
-            messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-            appId: import.meta.env?.VITE_FIREBASE_APP_ID || ""
-        };
+        // Environment Firebase Config or Fallbacks
+        let firebaseConfig = {};
+        try {
+            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        } catch(e) {
+            console.warn("Using fallback environment variables for Firebase.");
+        }
 
-        const app = initializeApp(appConfig);
+        if (!firebaseConfig.apiKey) {
+            firebaseConfig = {
+                apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
+                authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+                projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
+                storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
+                messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+                appId: import.meta.env?.VITE_FIREBASE_APP_ID || ""
+            };
+        }
+
+        const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'enterprise-dashboard-v1';
+        
+        // App ID strictly matching the requested path
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'canteen-os-live';
         
         // --- State Variables ---
         let SYSTEM_USERS = {};
@@ -107,7 +119,7 @@
         let dataLoaded = false;
         
         // Analytics State
-        let allAttendanceLogs = [];
+        let allTokens = [];
         let dailyRates = {
             "Sunday": 0, "Monday": 0, "Tuesday": 0, "Wednesday": 0,
             "Thursday": 0, "Friday": 0, "Saturday": 0
@@ -186,6 +198,7 @@
         const loadData = () => {
             if (!auth.currentUser) return;
             
+            // 1. Fetch system_users
             const qSys = query(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'));
             onSnapshot(qSys, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
@@ -199,7 +212,8 @@
                 }
             }, (error) => console.error("Error fetching system users:", error));
 
-            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen');
+            // 2. Fetch settings
+            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'canteen');
             onSnapshot(settingsRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
@@ -216,12 +230,13 @@
                 calculateDashboardStats();
             }, (error) => console.error("Error fetching settings:", error));
 
-            const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs');
-            onSnapshot(logsRef, (snap) => {
-                allAttendanceLogs = [];
-                snap.forEach(doc => allAttendanceLogs.push(doc.data()));
+            // 3. Fetch tokens (replaces attendance_logs)
+            const tokensRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
+            onSnapshot(tokensRef, (snap) => {
+                allTokens = [];
+                snap.forEach(doc => allTokens.push(doc.data()));
                 calculateDashboardStats();
-            }, (error) => console.error("Error fetching logs:", error));
+            }, (error) => console.error("Error fetching tokens:", error));
         };
 
         onAuthStateChanged(auth, (user) => {
@@ -241,7 +256,7 @@
             let tIssued = 0, tRedeemed = 0, tValue = 0;
             let mIssued = 0, mRedeemed = 0, mValue = 0;
 
-            allAttendanceLogs.forEach(log => {
+            allTokens.forEach(log => {
                 const isRedeemed = log.mealRedeemed === true;
                 const logDate = log.date;
                 
@@ -367,7 +382,8 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="hidden sm:inline ml-1">Exporting...</span>';
             btn.disabled = true;
 
-            const collectionsToBackup = ['system_users', 'personnel', 'attendance_logs', 'system_settings'];
+            // Updated collections mapping based on path structures
+            const collectionsToBackup = ['system_users', 'employees', 'tokens', 'settings'];
             const backupObj = {};
 
             try {
@@ -736,5 +752,3 @@
 
 </body>
 </html>
-
-```
