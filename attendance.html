@@ -54,7 +54,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, doc, getDoc, getDocs, query, where, limit, setDoc, deleteDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase Config
         let firebaseConfig = {};
@@ -80,7 +80,6 @@
 
         // State
         let SYSTEM_USERS = {};
-        let personnelList = [];
         let todayTokens = [];
         let WEEKLY_PRICES = { Monday: 80, Tuesday: 80, Wednesday: 80, Thursday: 80, Friday: 80, Saturday: 80, Sunday: 80 };
         let alcMealItems = {};
@@ -170,21 +169,19 @@
         initAuth();
 
         const loadData = () => {
+            if (!auth.currentUser) return; // Guard against offline/unauthenticated fetch
+
             // Load System Users to Verify Admin Privileges
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'), (snap) => {
                 SYSTEM_USERS = {};
                 snap.forEach(doc => { SYSTEM_USERS[doc.id] = doc.data(); });
                 window.renderLedger(); 
-            });
+            }, (err) => console.error("System Users fetch error:", err));
 
-            // 1. Fetch EMPLOYEES collection as per index (90).html path mapping
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), (snap) => {
-                personnelList = [];
-                snap.forEach(doc => personnelList.push({ id: doc.id, empId: doc.id, ...doc.data() }));
-                window.renderLedger();
-            });
+            // Note: We deliberately DO NOT download the entire 'employees' collection here anymore.
+            // This massively speeds up system load times. Employees are queried on-the-fly during scanning.
 
-            // 2. Fetch TOKENS collection as per index (90).html path mapping
+            // Fetch TOKENS collection as per index (90).html path mapping
             const today = getTodayStr();
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'tokens'), (snap) => {
                 todayTokens = [];
@@ -195,21 +192,21 @@
                     }
                 });
                 window.renderLedger();
-            });
+            }, (err) => console.error("Tokens fetch error:", err));
 
-            // 3. Fetch SETTINGS collection to acquire meal_prices & alc configuration
+            // Fetch SETTINGS collection to acquire meal_prices & alc configuration
             onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'meal_prices'), (docSnap) => {
                 if (docSnap.exists() && docSnap.data().prices) {
                     Object.assign(WEEKLY_PRICES, docSnap.data().prices);
                 }
-            });
+            }, (err) => console.error("Prices fetch error:", err));
             
             onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'system_settings', 'canteen'), (docSnap) => {
                 if (docSnap.exists() && docSnap.data().alcMealItems) {
                     alcMealItems = docSnap.data().alcMealItems;
                     updateAlcDropdown();
                 }
-            });
+            }, (err) => console.error("ALC settings fetch error:", err));
         };
 
         function updateAlcDropdown() {
@@ -242,7 +239,7 @@
                 icon.className = "fas fa-qrcode text-blue-500 text-xl md:text-2xl transition-colors";
                 helper.innerHTML = '<i class="fas fa-keyboard mr-1"></i> Awaiting scanner input...';
                 
-                setTimeout(() => input.focus(), 100);
+                setTimeout(() => document.getElementById('attendance-scanner').focus(), 100);
             } else {
                 btnAlc.className = "px-6 py-2.5 rounded-lg text-sm font-bold transition-all bg-indigo-600 text-white shadow-md flex items-center gap-2";
                 btnStd.className = "px-6 py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-slate-200 flex items-center gap-2";
@@ -283,20 +280,15 @@
 
             // Tally Metrics & Site Scans
             const siteCounts = {};
-            let totalScanned = 0;
-            let totalWorkforce = personnelList.filter(p => p.status !== 'INACTIVE').length || 1; 
+            let totalScanned = todayTokens.length;
             
             todayTokens.forEach(t => { 
                 const siteName = t.site && t.site !== '-' ? t.site : 'Unassigned Site';
                 siteCounts[siteName] = (siteCounts[siteName] || 0) + 1;
-                totalScanned++;
             });
 
             // Update Top Metrics UI
             document.getElementById('stat-cleared-emp').innerText = totalScanned;
-            const percentage = totalWorkforce === 0 ? 0 : Math.round((totalScanned / totalWorkforce) * 100);
-            document.getElementById('attendance-progress').style.width = `${Math.min(percentage, 100)}%`;
-            document.getElementById('attendance-progress-text').innerText = `${percentage}% (${totalScanned} / ${totalWorkforce})`;
 
             // Update Site-Wise Distribution UI
             let siteHtml = '';
@@ -385,14 +377,41 @@
             
             showScanResultModal('VERIFYING...', 'Processing...', 'info');
 
-            // Find employee
-            let emp = personnelList.find(e => e.id === val || e.empId === val);
+            const todayStr = getTodayStr();
+            const alreadyMarked = todayTokens.find(t => t.empId === val || t.id === val);
+
+            if (alreadyMarked) {
+                return showScanResultModal('ALREADY ACTIVE', `${alreadyMarked.empName} has already accessed.`, 'warning');
+            }
+
+            // Dynamically query the employee to bypass the need to download the full DB upfront
+            let emp = null;
+            try {
+                // Try fetching by Document ID
+                const empRef = doc(db, 'artifacts', appId, 'public', 'data', 'employees', val);
+                const empSnap = await getDoc(empRef);
+                if (empSnap.exists()) {
+                    emp = { id: empSnap.id, ...empSnap.data() };
+                } else {
+                    // Fallback to querying by the `empId` field
+                    const empQ = query(collection(db, 'artifacts', appId, 'public', 'data', 'employees'), where('empId', '==', val), limit(1));
+                    const qs = await getDocs(empQ);
+                    if (!qs.empty) {
+                        emp = { id: qs.docs[0].id, ...qs.docs[0].data() };
+                    }
+                }
+            } catch (err) {
+                console.error("Employee Query Error: ", err);
+                window.showToast("Network Error: Verification taking too long.", "error");
+                document.getElementById('result-modal').classList.add('hidden');
+                return;
+            }
 
             if (!emp) {
                 return showScanResultModal('ACCESS DENIED', 'Invalid Terminal ID', 'error');
             }
 
-            const pId = emp.id; 
+            const pId = emp.id || emp.empId; 
             const company = String(emp.companyName || emp.company || '').toUpperCase();
             const isAlcEmp = company.includes('ALC');
 
@@ -415,13 +434,6 @@
             } else {
                 const todayName = new Date().toLocaleDateString('en-US', {weekday: 'long'});
                 appliedCost = parseFloat(WEEKLY_PRICES[todayName]) || 80;
-            }
-
-            const todayStr = getTodayStr();
-            const alreadyMarked = todayTokens.find(t => t.empId === pId);
-
-            if (alreadyMarked) {
-                return showScanResultModal('ALREADY ACTIVE', `${emp.name} has already accessed.`, 'warning');
             }
 
             try {
@@ -493,12 +505,23 @@
                 const el = document.getElementById(elementId);
                 const isAttendanceView = !document.getElementById('view-attendance').classList.contains('hidden');
                 
-                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-                const isDropdownFocused = activeTag === 'select';
+                const activeEl = document.activeElement;
+                const activeTag = activeEl ? activeEl.tagName.toLowerCase() : '';
+                const activeId = activeEl ? activeEl.id : '';
+                
+                // Don't steal focus if the user is typing in the search bar or interacting with the dropdown
+                if (activeTag === 'select' || activeTag === 'input' || activeTag === 'textarea') {
+                    if (activeId !== 'attendance-scanner') return; 
+                }
+
+                const isCameraActive = !document.getElementById('webcam-modal').classList.contains('hidden');
                 const isContainerHidden = document.getElementById('scanner-wrapper') ? document.getElementById('scanner-wrapper').classList.contains('hidden') : false;
 
-                if (el && document.activeElement !== el && isAttendanceView && !isDropdownFocused && !isContainerHidden) {
-                    el.focus();
+                if (el && isAttendanceView && !isContainerHidden && !isCameraActive) {
+                    if (document.activeElement !== el) {
+                        // Prevent the soft keyboard on mobile when programmatically restoring focus
+                        el.focus({ preventScroll: true });
+                    }
                 }
             }, 100);
         };
@@ -522,6 +545,7 @@
         window.stopWebcamScanner = () => {
             document.getElementById('webcam-modal').classList.add('hidden');
             if(html5QrcodeScanner) html5QrcodeScanner.stop().catch(()=>{});
+            document.getElementById('attendance-scanner').focus();
         };
 
         window.reviseAttendance = async (tokenId, empName, status) => {
@@ -553,7 +577,7 @@
         };
     </script>
 </head>
-<body class="bg-[#0B1120] text-slate-100 font-sans h-[100dvh] flex flex-col overflow-hidden transition-colors duration-500">
+<body class="bg-[#0B1120] text-slate-100 font-sans h-[100dvh] flex flex-col overflow-hidden transition-colors duration-500" onclick="keepFocus('attendance-scanner')">
 
     <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-2"></div>
 
@@ -650,7 +674,7 @@
                             <div class="absolute inset-y-0 left-6 sm:left-10 flex items-center pointer-events-none">
                                 <i id="scanner-input-icon" class="fas fa-qrcode text-blue-500 text-xl md:text-2xl transition-colors"></i>
                             </div>
-                            <input type="password" id="attendance-scanner" inputmode="none" placeholder="SCAN PERSONNEL QR . . ." 
+                            <input type="text" id="attendance-scanner" inputmode="none" placeholder="SCAN PERSONNEL QR . . ." 
                                 class="w-full pl-16 sm:pl-20 pr-6 py-5 sm:py-6 border-2 border-blue-500/60 rounded-[1.5rem] bg-slate-900/50 focus:bg-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 font-mono text-center text-lg sm:text-2xl tracking-[0.15em] sm:tracking-[0.25em] outline-none transition scanner-input shadow-[0_0_15px_rgba(59,130,246,0.15)] text-white" 
                                 onkeydown="handleScannerInput(event)" oninput="handleAutoScan(event)" onblur="keepFocus('attendance-scanner')" autocomplete="off">
                         </div>
@@ -665,24 +689,15 @@
                 </div>
             </div>
 
-            <!-- Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 shrink-0">
-                <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
-                    <div class="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full pointer-events-none"></div>
+            <!-- Single Focus Metric -->
+            <div class="mb-6 shrink-0 max-w-md">
+                <div class="bg-slate-800 p-5 rounded-2xl border border-emerald-900/40 shadow-sm flex items-center justify-between relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 w-20 h-20 bg-emerald-500/10 rounded-full pointer-events-none"></div>
                     <div>
-                        <span class="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.15em] mb-1 block">Tokens Issued Today</span>
-                        <span id="stat-cleared-emp" class="text-2xl font-black text-emerald-400">0</span>
+                        <span class="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-1 block">Tokens Issued Today</span>
+                        <span id="stat-cleared-emp" class="text-4xl font-black text-emerald-400 drop-shadow-sm">0</span>
                     </div>
-                    <div class="w-10 h-10 bg-emerald-900/50 rounded-full flex items-center justify-center text-emerald-500"><i class="fas fa-clipboard-check text-lg"></i></div>
-                </div>
-                <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm flex flex-col justify-center">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em]">Completion Metric</span>
-                        <span id="attendance-progress-text" class="text-sm font-black text-white">0% (0 / 0)</span>
-                    </div>
-                    <div class="w-full bg-slate-700 rounded-full h-2.5 mt-1 overflow-hidden border border-slate-600">
-                        <div id="attendance-progress" class="bg-blue-500 h-2.5 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
-                    </div>
+                    <div class="w-12 h-12 bg-emerald-900/50 rounded-full flex items-center justify-center text-emerald-500 shadow-inner"><i class="fas fa-clipboard-check text-xl"></i></div>
                 </div>
             </div>
 
