@@ -110,8 +110,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // App ID strictly matching the requested path
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'canteen-os-live';
+        // Explicitly hardcoded to match the database in your screenshots
+        const targetDbAppId = 'canteen-os-live';
         
         // --- State Variables ---
         let SYSTEM_USERS = {};
@@ -125,7 +125,7 @@
             "Thursday": 0, "Friday": 0, "Saturday": 0
         };
 
-        const SYS_SESSION_KEY = `ent_sys_session_${appId}`;
+        const SYS_SESSION_KEY = `ent_sys_session_${targetDbAppId}`;
 
         // View Management
         const views = {
@@ -183,6 +183,14 @@
             }, 3000);
         };
 
+        window.forceSync = () => {
+            showToast('Syncing with cloud database...', 'info');
+            if(dataLoaded && auth.currentUser) {
+                calculateDashboardStats();
+                setTimeout(() => showToast('Dashboard Synced!', 'success'), 800);
+            }
+        };
+
         // --- Theme Init ---
         document.documentElement.classList.add('dark'); 
         window.toggleTheme = () => { document.documentElement.classList.toggle('dark'); };
@@ -204,8 +212,8 @@
         const loadData = () => {
             if (!auth.currentUser) return;
             
-            // 1. Fetch system_users
-            const qSys = query(collection(db, 'artifacts', appId, 'public', 'data', 'system_users'));
+            // 1. Fetch system_users directly from canteen-os-live target
+            const qSys = query(collection(db, 'artifacts', targetDbAppId, 'public', 'data', 'system_users'));
             onSnapshot(qSys, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === "added" || change.type === "modified") SYSTEM_USERS[change.doc.id] = change.doc.data();
@@ -218,15 +226,15 @@
                 }
             }, (error) => console.error("Error fetching system users:", error));
 
-            // 2. Fetch settings (Listen to the whole collection in case the doc ID isn't exactly 'canteen')
-            const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
+            // 2. Fetch settings
+            const settingsRef = collection(db, 'artifacts', targetDbAppId, 'public', 'data', 'settings');
             onSnapshot(settingsRef, (snap) => {
                 snap.forEach(docSnap => {
                     const data = docSnap.data();
                     if (data.dailyRates) {
                         dailyRates = data.dailyRates;
-                    } else if (data.mealTokenValue !== undefined) {
-                        const val = parseFloat(data.mealTokenValue) || 0;
+                    } else if (data.mealTokenValue !== undefined || data.defaultRate !== undefined || data.value !== undefined) {
+                        const val = parseFloat(data.mealTokenValue || data.defaultRate || data.value) || 0;
                         dailyRates = {
                             "Sunday": val, "Monday": val, "Tuesday": val, "Wednesday": val,
                             "Thursday": val, "Friday": val, "Saturday": val
@@ -236,8 +244,8 @@
                 calculateDashboardStats();
             }, (error) => console.error("Error fetching settings:", error));
 
-            // 3. Fetch tokens (replaces attendance_logs)
-            const tokensRef = collection(db, 'artifacts', appId, 'public', 'data', 'tokens');
+            // 3. Fetch tokens for the dashboard
+            const tokensRef = collection(db, 'artifacts', targetDbAppId, 'public', 'data', 'tokens');
             onSnapshot(tokensRef, (snap) => {
                 allTokens = [];
                 snap.forEach(doc => allTokens.push(doc.data()));
@@ -263,21 +271,23 @@
             let mIssued = 0, mRedeemed = 0, mValue = 0;
 
             allTokens.forEach(log => {
-                // Support multiple ways "redeemed" might be stored
-                const isRedeemed = log.mealRedeemed === true || log.mealRedeemed === 'true' || log.status === 'REDEEMED' || log.isRedeemed === true;
+                // Support multiple ways "redeemed" might be stored in the DB
+                const isRedeemed = log.mealRedeemed === true || log.mealRedeemed === 'true' || log.status === 'REDEEMED' || log.isRedeemed === true || log.redeemed === true;
                 
-                // Extract date from log safely (handles standard string or Firebase Timestamp)
-                let logDate = log.date;
-                if (!logDate && log.timestamp) {
-                    if (typeof log.timestamp.toDate === 'function') {
-                        const d = log.timestamp.toDate();
-                        logDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                    } else if (typeof log.timestamp === 'string') {
-                        logDate = log.timestamp.split('T')[0];
-                    }
+                // Extract date safely (handles standard string YYYY-MM-DD or Firebase Timestamp)
+                let logDate = log.date || log.dateStr || log.timestamp || log.createdAt;
+                
+                if (logDate && typeof logDate.toDate === 'function') {
+                    const d = logDate.toDate();
+                    logDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                } else if (typeof logDate === 'string' && logDate.includes('T')) {
+                    logDate = logDate.split('T')[0];
+                } else if (typeof logDate === 'number') { // If stored as milliseconds
+                    const d = new Date(logDate);
+                    logDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
                 }
                 
-                if (!logDate) return;
+                if (!logDate || typeof logDate !== 'string') return;
                 
                 let rateForDay = 0;
                 const dayName = getDayName(logDate);
@@ -399,13 +409,12 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="hidden sm:inline ml-1">Exporting...</span>';
             btn.disabled = true;
 
-            // Updated collections mapping based on path structures
             const collectionsToBackup = ['system_users', 'employees', 'tokens', 'settings'];
             const backupObj = {};
 
             try {
                 for (const colName of collectionsToBackup) {
-                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
+                    const colRef = collection(db, 'artifacts', targetDbAppId, 'public', 'data', colName);
                     const snapshot = await getDocs(colRef);
                     backupObj[colName] = {};
                     snapshot.forEach(doc => {
@@ -461,7 +470,7 @@
                     for (const [colName, docs] of Object.entries(data)) {
                         if(typeof docs === 'object' && docs !== null) {
                             for (const [docId, docData] of Object.entries(docs)) {
-                                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, docId), docData);
+                                await setDoc(doc(db, 'artifacts', targetDbAppId, 'public', 'data', colName, docId), docData);
                                 importedCount++;
                             }
                         }
@@ -649,9 +658,9 @@
                     <h2 class="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">Operations Dashboard</h2>
                     <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Real-time canteen utilization and financial metrics</p>
                 </div>
-                <div class="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-4 py-2 rounded-lg border border-blue-500/20 text-sm font-semibold flex items-center">
-                    <i class="fas fa-circle text-[8px] mr-2 animate-ping"></i> Live Data Sync
-                </div>
+                <button onclick="forceSync()" class="bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 px-4 py-2 rounded-lg border border-blue-500/20 text-sm font-semibold flex items-center transition-colors cursor-pointer">
+                    <i class="fas fa-sync-alt mr-2 hover:animate-spin"></i> Live Data Sync
+                </button>
             </div>
             
             <!-- Real Time Stats Overview -->
