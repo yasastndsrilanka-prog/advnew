@@ -79,6 +79,7 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'canteen-os-live';
 
         // State
+        let SYSTEM_USERS = {};
         let EMPLOYEES = {};
         let TOKENS = [];
         let WEEKLY_PRICES = { Monday: 80, Tuesday: 80, Wednesday: 80, Thursday: 80, Friday: 80, Saturday: 80, Sunday: 80 };
@@ -170,6 +171,14 @@
         initAuth();
 
         const loadData = () => {
+            // Load System Users to Verify Admin Privileges
+            const sysRef = collection(db, 'artifacts', appId, 'public', 'data', 'system_users');
+            onSnapshot(sysRef, (snap) => {
+                SYSTEM_USERS = {};
+                snap.forEach(doc => { SYSTEM_USERS[doc.id] = doc.data(); });
+                window.renderAttendance(); 
+            });
+
             // Load Employees
             const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'employees');
             onSnapshot(pRef, (snap) => {
@@ -197,11 +206,9 @@
             onSnapshot(settingsRef, (snap) => {
                 snap.forEach(docSnap => {
                     const data = docSnap.data();
-                    // Load global prices
                     if (docSnap.id === 'meal_prices' || data.prices) {
                         WEEKLY_PRICES = data.prices || data.dailyRates || WEEKLY_PRICES;
                     }
-                    // Load ALC Items (from canteen settings or wherever stored)
                     if (data.alcMealItems) {
                         alcMealItems = data.alcMealItems;
                     }
@@ -256,7 +263,6 @@
             }
         };
 
-        // When ALC Meal is selected, reveal the scanner
         window.handleAlcSelection = () => {
             const val = document.getElementById('alc-meal-select').value;
             const scannerContainer = document.getElementById('scanner-container');
@@ -275,11 +281,39 @@
         window.renderAttendance = () => {
             const listEl = document.getElementById('attendance-list');
             const term = (document.getElementById('attendance-search')?.value || '').toLowerCase();
-            const today = getTodayStr();
             
-            const markedLogsMap = {};
-            TOKENS.forEach(t => markedLogsMap[t.empId] = t);
+            // Authorization Check for "Reverse" Button
+            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role;
+            const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
 
+            // Pre-process Data Maps
+            const markedLogsMap = {};
+            const siteCounts = {};
+            let totalScanned = 0;
+            
+            TOKENS.forEach(t => { 
+                markedLogsMap[t.empId] = t; 
+                // Tally Site Scans
+                const siteName = t.site && t.site !== '-' ? t.site : 'Unassigned Site';
+                siteCounts[siteName] = (siteCounts[siteName] || 0) + 1;
+                totalScanned++;
+            });
+
+            // Update Site-Wise Distribution UI
+            let siteHtml = '';
+            Object.entries(siteCounts).sort((a,b) => b[1] - a[1]).forEach(([site, count]) => {
+                siteHtml += `<div class="bg-slate-800/80 border border-slate-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">${site}</span>
+                                <span class="bg-blue-500/20 text-blue-400 font-black px-2 py-0.5 rounded-lg text-sm">${count}</span>
+                             </div>`;
+            });
+            if (totalScanned === 0) {
+                siteHtml = `<div class="text-xs font-bold text-slate-500 uppercase tracking-widest px-4 py-2 border border-slate-800 rounded-xl bg-slate-800/30"><i class="fas fa-info-circle mr-2"></i> No scans recorded yet today</div>`;
+            }
+            const siteContainer = document.getElementById('site-wise-container');
+            if (siteContainer) siteContainer.innerHTML = siteHtml;
+
+            // Render Ledger List
             let html = '';
             let totalActive = 0;
             let clearedCount = 0;
@@ -292,6 +326,7 @@
                 return pName.toLowerCase().includes(term) || pId.toLowerCase().includes(term) || pDept.toLowerCase().includes(term);
             });
 
+            // Sorting: Unscanned (Waiting for Scan) appear at the top, then Alphabetically
             filteredPersonnel.sort((a, b) => {
                 const aId = a.id || a.empId;
                 const bId = b.id || b.empId;
@@ -331,9 +366,10 @@
                                     <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm bg-emerald-900/30 px-4 py-2.5 rounded-xl border border-emerald-800/50 shadow-sm">
                                         <i class="fas fa-check-circle"></i> <span class="hidden sm:inline">Cleared</span>
                                     </div>
-                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revise/Undo Attendance">
+                                    ${isAdmin ? `
+                                    <button onclick="reviseAttendance('${log.id}', '${p.name.replace(/'/g, "\\'")}', '${log.status}')" class="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-red-900/40 w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-sm border border-slate-700 hover:border-red-800/50" title="Revoke Attendance (Admin Only)">
                                         <i class="fas fa-arrow-rotate-left"></i>
-                                    </button>
+                                    </button>` : ''}
                                 </div>
                             ` : `
                                 <div class="text-slate-500 font-bold text-[10px] uppercase tracking-widest px-4 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700 flex items-center gap-2 shadow-inner">
@@ -489,6 +525,14 @@
         window.reviseAttendance = async (tokenId, empName, status) => {
             if (!auth.currentUser || !loggedInSysUser) return;
             
+            // Programmatic Guard
+            const role = loggedInSysUser?.role || SYSTEM_USERS[loggedInSysUser?.username]?.role;
+            const isAdmin = role === 'ADMIN' || loggedInSysUser?.username === 'ADMIN';
+            if (!isAdmin) {
+                window.showToast(`Unauthorized: Only Administrators can reverse scans.`, 'error');
+                return;
+            }
+
             if (status === 'CONSUMED') {
                 window.showToast(`Cannot revise: ${empName} has already redeemed their meal at the counter.`, 'error');
                 return;
@@ -636,6 +680,14 @@
                     <div class="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden border border-slate-600">
                         <div id="attendance-progress" class="bg-blue-500 h-3 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Site-wise Scanned Counts -->
+            <div class="mb-6">
+                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3"><i class="fas fa-map-marker-alt mr-1"></i> Site-Wise Scan Distribution</h4>
+                <div id="site-wise-container" class="flex flex-wrap gap-3">
+                    <!-- Dynamic Site Counts Injected Here -->
                 </div>
             </div>
 
