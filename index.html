@@ -110,8 +110,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // Explicitly hardcoded to match the database in your screenshots
-        const targetDbAppId = 'canteen-os-live';
+        // Explicitly use the environment app ID to satisfy Canvas Security Rules
+        const targetDbAppId = typeof __app_id !== 'undefined' ? __app_id : 'canteen-os-live';
         
         // --- State Variables ---
         let SYSTEM_USERS = {};
@@ -187,7 +187,15 @@
             showToast('Syncing with cloud database...', 'info');
             if(dataLoaded && auth.currentUser) {
                 calculateDashboardStats();
-                setTimeout(() => showToast('Dashboard Synced!', 'success'), 800);
+                setTimeout(() => {
+                    if (allTokens.length === 0) {
+                        showToast('Sync Complete: No tokens found in database.', 'error');
+                    } else {
+                        showToast(`Dashboard Synced! Loaded ${allTokens.length} tokens.`, 'success');
+                    }
+                }, 800);
+            } else {
+                showToast('Connection pending...', 'error');
             }
         };
 
@@ -250,7 +258,10 @@
                 allTokens = [];
                 snap.forEach(doc => allTokens.push(doc.data()));
                 calculateDashboardStats();
-            }, (error) => console.error("Error fetching tokens:", error));
+            }, (error) => {
+                console.error("Error fetching tokens:", error);
+                showToast("Permission/Connection Error loading tokens.", "error");
+            });
         };
 
         onAuthStateChanged(auth, (user) => {
@@ -264,36 +275,78 @@
         initAuth();
 
         function calculateDashboardStats() {
-            const todayStr = getTodayStr();
+            const today = new Date();
+            const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
             const monthStr = todayStr.substring(0, 7);
 
             let tIssued = 0, tRedeemed = 0, tValue = 0;
             let mIssued = 0, mRedeemed = 0, mValue = 0;
 
             allTokens.forEach(log => {
-                // Support multiple ways "redeemed" might be stored in the DB
-                const isRedeemed = log.mealRedeemed === true || log.mealRedeemed === 'true' || log.status === 'REDEEMED' || log.isRedeemed === true || log.redeemed === true;
+                // Aggressively match ANY potential "redeemed" status field
+                const isRedeemed = 
+                    log.mealRedeemed === true || 
+                    log.mealRedeemed === 'true' || 
+                    log.redeemed === true || 
+                    log.isRedeemed === true || 
+                    (log.status && String(log.status).toUpperCase() === 'REDEEMED') ||
+                    (log.state && String(log.state).toUpperCase() === 'REDEEMED');
                 
-                // Extract date safely (handles standard string YYYY-MM-DD or Firebase Timestamp)
-                let logDate = log.date || log.dateStr || log.timestamp || log.createdAt;
+                // Aggressively extract date from multiple potential Firebase fields
+                let rawDate = log.date || log.dateStr || log.timestamp || log.createdAt || log.issuedAt || log.redeemedAt;
                 
-                if (logDate && typeof logDate.toDate === 'function') {
-                    const d = logDate.toDate();
-                    logDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                } else if (typeof logDate === 'string' && logDate.includes('T')) {
-                    logDate = logDate.split('T')[0];
-                } else if (typeof logDate === 'number') { // If stored as milliseconds
-                    const d = new Date(logDate);
-                    logDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                // If standard fields fail, check if any property is a Firebase Timestamp
+                if (!rawDate) {
+                    for (const key in log) {
+                        if (log[key] && typeof log[key].toDate === 'function') {
+                            rawDate = log[key]; break;
+                        }
+                    }
+                }
+
+                let logDateStr = "";
+                if (rawDate) {
+                    let d;
+                    if (typeof rawDate.toDate === 'function') {
+                        d = rawDate.toDate(); // Firebase Timestamp
+                    } else if (typeof rawDate === 'number') {
+                        d = new Date(rawDate); // Milliseconds
+                    } else if (typeof rawDate === 'string') {
+                        d = new Date(rawDate); // ISO string
+                        if (isNaN(d.getTime())) { // Handle custom formats like DD/MM/YYYY
+                            const parts = rawDate.split(/[-/]/);
+                            if (parts.length === 3) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+                        }
+                    }
+                    
+                    if (d && !isNaN(d.getTime())) {
+                        logDateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    }
                 }
                 
-                if (!logDate || typeof logDate !== 'string') return;
+                // Skip if we STILL couldn't parse a valid date
+                if (!logDateStr) return;
                 
+                // Value/Rate Calculation
                 let rateForDay = 0;
-                const dayName = getDayName(logDate);
-                rateForDay = parseFloat(dailyRates[dayName]) || 0;
+                const dayName = getDayName(logDateStr);
+                
+                // 1. Try to get rate from settings based on Day
+                if (dailyRates && dailyRates[dayName]) {
+                    rateForDay = parseFloat(dailyRates[dayName]);
+                }
+                // 2. Fallback: Check if the token itself has a saved price
+                if (!rateForDay || rateForDay === 0) {
+                    rateForDay = parseFloat(log.value || log.price || log.rate || log.amount || 0); 
+                }
+                // 3. Fallback: Use ANY defined positive rate in settings
+                if (!rateForDay || rateForDay === 0) {
+                    const anyRate = Object.values(dailyRates).find(v => typeof v === 'number' && v > 0);
+                    if (anyRate) rateForDay = anyRate;
+                }
 
-                if (logDate === todayStr) {
+                // Aggregate Today's Stats
+                if (logDateStr === todayStr) {
                     tIssued++;
                     if (isRedeemed) {
                         tRedeemed++;
@@ -301,7 +354,8 @@
                     }
                 }
 
-                if (logDate.startsWith(monthStr)) {
+                // Aggregate Month's Stats
+                if (logDateStr.startsWith(monthStr)) {
                     mIssued++;
                     if (isRedeemed) {
                         mRedeemed++;
